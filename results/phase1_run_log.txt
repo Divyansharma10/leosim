@@ -1,0 +1,79 @@
+[cache] hit C:\Users\divya\leosim\cache\54a1268e38b278ba
+
+constellation: 187 satellites, 1800 steps of 1 s, epoch 2026-08-20T15:15:13Z
+topology variant: objective=max, latency=d_over_c, lookahead=forward
+
+[1/6] Experiment 2: five Table II city pairs
+  S1 Sydney -> Darwin: reachable 0.0%
+  S2 Miami -> Calgary: reachable 98.6%
+  S3 New York -> Miami: reachable 92.1%
+  S4 New York -> San Francisco: reachable 93.5%
+  S5 Phnom Penh -> Kathmandu: reachable 84.9%
+  [csv] C:\Users\divya\leosim\results\experiment2_pairs.csv
+
+[1b] S1 mask sensitivity
+  mask 25.0 deg: Sydney sees 0.00 sats, reachable 0.0%
+  mask 20.0 deg: Sydney sees 0.08 sats, reachable 8.2%
+  mask 15.0 deg: Sydney sees 0.32 sats, reachable 32.0%
+  mask 10.0 deg: Sydney sees 0.79 sats, reachable 78.1%
+  mask  5.0 deg: Sydney sees 1.41 sats, reachable 100.0%
+  [csv] C:\Users\divya\leosim\results\experiment2_S1_mask_sensitivity.csv
+
+[2/6] Paired hop comparison against Greedy
+  S2 DoTD-forward: fewer 39.2%  equal 44.7%  more 16.1%
+  S2 DoTD-backward: fewer 18.5%  equal 77.2%  more 4.3%
+  S3 DoTD-forward: fewer 32.6%  equal 54.8%  more 12.5%
+  S3 DoTD-backward: fewer 7.7%  equal 90.7%  more 1.7%
+  S4 DoTD-forward: fewer 43.0%  equal 43.0%  more 14.0%
+  S4 DoTD-backward: fewer 19.7%  equal 64.9%  more 15.3%
+  S5 DoTD-forward: fewer 9.2%  equal 83.3%  more 7.5%
+  S5 DoTD-backward: fewer 0.0%  equal 94.0%  more 6.0%
+  [csv] C:\Users\divya\leosim\results\paired_hop_comparison.csv
+
+[3/6] Topology overlap with Greedy
+  DoTD-forward: identical at 0.00% of steps, mean Jaccard 0.6175
+  DoTD-backward: identical at 14.06% of steps, mean Jaccard 0.8836
+  +Grid: identical at 0.00% of steps, mean Jaccard 0.1960
+  [csv] C:\Users\divya\leosim\results\topology_overlap.csv
+
+[4/6] Experiment 3: ISLs kept vs churn
+  +Grid: keeps 331.0 ISLs (100.00%), churn 0.0000
+  Greedy: keeps 369.0 ISLs (99.99%), churn 0.0962
+  DoTD-forward: keeps 369.9 ISLs (99.93%), churn 0.4914
+  DoTD-backward: keeps 368.7 ISLs (99.99%), churn 0.0928
+  [csv] C:\Users\divya\leosim\results\experiment3_churn.csv
+
+[5/6] Paper-variant matrix on New York -> San Francisco
+  objective=max latency=d_over_c  -> median hops DoTD-f 5, Greedy 6, +Grid 7
+  objective=max latency=c_over_d  -> median hops DoTD-f 5, Greedy 5, +Grid 7
+  objective=min latency=d_over_c  -> median hops DoTD-f 3, Greedy 4, +Grid 7
+  objective=min latency=c_over_d  -> median hops DoTD-f 3, Greedy 4, +Grid 7
+  [csv] C:\Users\divya\leosim\results\variant_matrix.csv
+  [csv] C:\Users\divya\leosim\results\variant_matrix_verdict.csv
+objective latency_formula  dotd_median  greedy_median  paper_gap  ordering_holds
+      max        c_over_d          5.0            5.0        1.0           False
+      max        d_over_c          5.0            6.0        0.0            True
+      min        c_over_d          3.0            4.0        4.0            True
+      min        d_over_c          3.0            4.0        4.0            True
+
+[6/6] w_lookahead trade-off
+  w=0.0    capacity  398.65  churn 0.0962  hops 5.453
+  w=0.125  capacity  401.65  churn 0.1656  hops 5.354
+  w=0.25   capacity  403.35  churn 0.1879  hops 5.227
+  w=0.5    capacity  406.27  churn 0.2757  hops 5.225
+  w=1.0    capacity  409.13  churn 0.4914  hops 5.111
+  w=2.0    capacity  412.29  churn 0.8360  hops 5.159
+  [csv] C:\Users\divya\leosim\results\w_lookahead_tradeoff.csv
+
+[figures]
+  [fig] C:\Users\divya\leosim\results\fig_hops_median.png
+  [fig] C:\Users\divya\leosim\results\fig_latency_mean_ms.png
+  [fig] C:\Users\divya\leosim\results\fig_path_cap_mean_gbps.png
+  [fig] C:\Users\divya\leosim\results\fig_paired_hops.png
+  [fig] C:\Users\divya\leosim\results\fig_churn.png
+  [fig] C:\Users\divya\leosim\results\fig_w_lookahead.png
+  [fig] C:\Users\divya\leosim\results\fig_variant_matrix.png
+  [fig] C:\Users\divya\leosim\results\fig_S1_mask_sensitivity.png
+  [csv] C:\Users\divya\leosim\results\run_metadata.csv
+
+done in 333s

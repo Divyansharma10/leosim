@@ -1,0 +1,7 @@
+cache/
+*.png
+__pycache__/
+*.pyc
+!results/*.png
+.cph/
+t.exe

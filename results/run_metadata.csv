@@ -1,0 +1,2 @@
+n_satellites,n_planes,sats_per_plane,n_steps,step_s,epoch_utc,shell_inclination_deg,topology_variant,routing_variant
+187,10,20,1800,1.0,2026-08-20T15:15:13Z,70.0,"objective=max, latency=d_over_c, lookahead=forward","metric=hop, mask=25deg, access=all"

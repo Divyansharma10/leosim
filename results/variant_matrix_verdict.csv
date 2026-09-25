@@ -1,0 +1,5 @@
+objective,latency_formula,dotd_median,greedy_median,paper_gap,ordering_holds
+max,c_over_d,5.0,5.0,1.0,False
+max,d_over_c,5.0,6.0,0.0,True
+min,c_over_d,3.0,4.0,4.0,True
+min,d_over_c,3.0,4.0,4.0,True

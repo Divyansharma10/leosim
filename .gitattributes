@@ -1,0 +1,4 @@
+# Store every file byte-for-byte. The stage-1 cache key hashes the TLE bytes and the
+# source of leosim/*.py, which mixes LF and CRLF; any line-ending conversion on
+# checkout would change that hash and silently force a full recompute.
+* -text
