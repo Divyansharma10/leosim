@@ -69,11 +69,14 @@ def main() -> int:
     p.add_argument("--planes", type=int, default=10)
     p.add_argument("--per-plane", type=int, default=20)
     p.add_argument("--steps", type=int, default=None)
+    p.add_argument("--step", type=float, default=SimConfig.step_s, help="stage-1 timestep, seconds")
+    p.add_argument("--duration-min", type=float, default=SimConfig.duration_s / 60.0, help="stage-1 window, minutes")
     p.add_argument("--metric", choices=["hop", "latency", "inv_capacity"], default="hop")
     p.add_argument("--all-metrics", action="store_true")
     p.add_argument("--mask", type=float, default=RoutingConfig.min_elevation_deg)
     p.add_argument("--objective", choices=["max", "min"], default="max")
     p.add_argument("--latency-formula", choices=["d_over_c", "c_over_d"], default="d_over_c")
+    p.add_argument("--grid-gaps", choices=["strict", "bridge"], default="strict")
     p.add_argument("--out", default="results")
     args = p.parse_args()
 
@@ -82,12 +85,20 @@ def main() -> int:
             raise SystemExit(f"Unknown city {city!r}; known: {sorted(CITIES)}")
 
     sim = SimConfig(
-        selection=SelectionConfig(n_planes=args.planes, sats_per_plane=args.per_plane)
+        step_s=args.step,
+        duration_s=args.duration_min * 60.0,
+        selection=SelectionConfig(
+            n_sats=args.planes * args.per_plane,
+            n_planes=args.planes,
+            sats_per_plane=args.per_plane,
+        ),
     ).resolve(ROOT)
     dataset = run(sim, verbose=True)
     n_steps = dataset.n_steps if args.steps is None else min(args.steps, dataset.n_steps)
 
-    tcfg = TopologyConfig(objective=args.objective, latency_formula=args.latency_formula)
+    tcfg = TopologyConfig(
+        objective=args.objective, latency_formula=args.latency_formula, grid_gaps=args.grid_gaps
+    )
     selectors = build_selectors(dataset, tcfg)
     results = {name: s.run(n_steps) for name, s in selectors.items()}
 
@@ -126,6 +137,8 @@ def main() -> int:
     out_dir = Path(args.out)
     out_dir.mkdir(exist_ok=True)
     tag = f"{args.pair[0]}_{args.pair[1]}".replace(" ", "")
+    if tcfg.grid_gaps != "strict":
+        tag += f"_grid-{tcfg.grid_gaps}"
     path = out_dir / f"experiment1_{tag}.csv"
     out.to_csv(path, index=False)
     print(f"\n[out] {path}")

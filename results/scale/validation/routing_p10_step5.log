@@ -1,0 +1,110 @@
+========================================================================
+  LEO CONSTELLATION SIMULATOR -- STAGE 3 VALIDATION
+  variant: objective=max, latency=d_over_c, lookahead=forward | metric=hop, mask=25deg, access=all
+========================================================================
+[cache] hit C:\Users\divya\leosim\cache\a527d90194e539f7
+
+  ran 4 selectors x 360 timesteps
+
+--- Ground station geometry ---------------------------------------------
+  [PASS] New York: geocentric radius lies on the WGS84 ellipsoid
+         measured 6369.08 km, required 6356.75..6378.14 km
+         range over the run 6369.083..6369.083 km
+  [PASS] New York: local vertical is a unit vector
+         max |norm(up) - 1| = 2.220e-16
+  [PASS] New York: geodetic vertical departs from radial by the WGS84 amount
+         measured 0.190177311 deg, pinned 0.1901766 deg, relative error 3.74e-06 (tolerance 1e-04)
+         latitude 40.7 deg; a spherical Earth would give exactly 0, and the bound alone would accept it
+  [PASS] Singapore: geocentric radius lies on the WGS84 ellipsoid
+         measured 6378.13 km, required 6356.75..6378.14 km
+         range over the run 6378.125..6378.125 km
+  [PASS] Singapore: local vertical is a unit vector
+         max |norm(up) - 1| = 2.220e-16
+  [PASS] Singapore: geodetic vertical departs from radial by the WGS84 amount
+         measured 0.009048144841 deg, pinned 0.0090481 deg, relative error 4.96e-06 (tolerance 1e-04)
+         latitude 1.4 deg; a spherical Earth would give exactly 0, and the bound alone would accept it
+  [PASS] New York: sweeps 360 deg per sidereal day in the inertial frame
+         measured 7.499643538 deg, pinned 7.49964395 deg, relative error 5.49e-08 (tolerance 1e-06)
+         1795 s elapsed; a solar day would give 7.479167 deg, a fixed station 0
+  [PASS] Singapore: sweeps 360 deg per sidereal day in the inertial frame
+         measured 7.49964331 deg, pinned 7.49964395 deg, relative error 8.53e-08 (tolerance 1e-06)
+         1795 s elapsed; a solar day would give 7.479167 deg, a fixed station 0
+  [PASS] Sydney: sweeps 360 deg per sidereal day in the inertial frame
+         measured 7.499643279 deg, pinned 7.49964395 deg, relative error 8.95e-08 (tolerance 1e-06)
+         1795 s elapsed; a solar day would give 7.479167 deg, a fixed station 0
+  [PASS] rotation axis is tilted from the GCRS z axis by a precession-sized angle
+         measured 0.149324 deg, required 0.01..0.5 deg
+         GCRS is referred to J2000; exactly 0 would mean the station is not being placed in a precessing inertial frame at all
+
+--- Ground-satellite access ---------------------------------------------
+  [PASS] elevation agrees with a spherical-Earth recomputation to oblateness size
+         measured 0.18618 deg, required 0..0.2 deg
+         a larger gap means the vertical is wrong, not merely oblate
+  [PASS] every access link is above the elevation mask
+         0 of 679 access links below 25 deg
+  [PASS] access check is not vacuous: the station does reach satellites
+         mean 1.89 satellites in view, max 5
+  [PASS] a stricter mask is a strict subset of a looser one
+         679 links at 25 deg, 50 at 60 deg, 0 present only in the stricter set
+  [PASS] slant range of every access link is within the mask's geometric bound
+         measured 1176.94 km, required 0..1205.98 km
+         bound from max altitude 595.9 km at 25 deg elevation
+  [PASS] max_access_links caps the count and keeps the highest-elevation link
+         0 timesteps above the cap of 1; 219 timesteps had more than one candidate
+
+--- Routing graph is built on the selected topology ---------------------
+  [PASS] +Grid: ISL edges in the graph are exactly the selected links
+         12 timesteps checked, 0 mismatched against LinkSet.edges (visibility at t=0 has 3526 pairs, the selection has 331)
+  [PASS] Greedy: ISL edges in the graph are exactly the selected links
+         12 timesteps checked, 0 mismatched against LinkSet.edges (visibility at t=0 has 3526 pairs, the selection has 369)
+  [PASS] DoTD-forward: ISL edges in the graph are exactly the selected links
+         12 timesteps checked, 0 mismatched against LinkSet.edges (visibility at t=0 has 3526 pairs, the selection has 370)
+  [PASS] DoTD-backward: ISL edges in the graph are exactly the selected links
+         12 timesteps checked, 0 mismatched against LinkSet.edges (visibility at t=0 has 3526 pairs, the selection has 369)
+  [PASS] graph is symmetric and labelled satellites-then-stations
+         189 nodes, asymmetric entries 0, last two labels ['New York', 'San Francisco']
+  [PASS] every edge cost is strictly positive (a zero weight would vanish)
+         746 directed entries, smallest 1
+  [PASS] hop metric weights every edge 1; latency metric does not
+         hop costs unique values [1.], latency costs range 2.158e-04..1.492e-02 s
+
+--- Paths are real, and are the shortest --------------------------------
+  [PASS] returned paths are connected walks from source to destination
+         18 paths checked: 0 with a non-edge step, 0 with wrong endpoints
+  [PASS] hop count equals the number of edges in the returned path
+         0 of 18 paths disagree with len(path) - 1
+  [PASS] path latency equals the sum of its edges' stage-1 latencies
+         0 of 18 paths disagree with independent summation
+  [PASS] path cost equals the independently computed shortest-path distance
+         largest disagreement 0.000e+00 over 20 timesteps
+  [PASS] hop-metric paths are never longer in hops than latency-metric paths
+         0 of 20 timesteps where minimising hops gave more hops
+  [PASS] metric choice check is not vacuous: the two metrics do differ
+         4 of 20 timesteps route differently under hop vs latency
+  [PASS] no path is reported as unreachable rather than as a zero-hop path
+         at an 89.99 deg mask: reachable=False, hops=-1 (sentinel -1), isl_hops=-1, latency_ms=nan, access counts [0, 0]
+
+--- Reported latency is physically possible -----------------------------
+  [PASS] no path beats light on the straight line between the two cities
+         0 violations over 1328 paths; tightest margin +1.3744 ms
+         S1 Sydney->Darwin: no path at any of 360 steps
+         S2 Miami->Calgary: fastest 20.358 ms vs chord floor 13.167 ms (margin +7.191), arc 13.387 ms; 355/360 steps with a path
+         S3 New York->Miami: fastest 7.220 ms vs chord floor 5.845 ms (margin +1.374), arc 5.864 ms; 332/360 steps with a path
+         S4 New York->San Francisco: fastest 16.830 ms vs chord floor 13.533 ms (margin +3.296), arc 13.773 ms; 337/360 steps with a path
+         S5 Phnom Penh->Kathmandu: fastest 11.642 ms vs chord floor 9.006 ms (margin +2.636), arc 9.075 ms; 304/360 steps with a path
+  [PASS] no path beats light along the ground arc either (these five pairs only)
+         0 violations over 1328 paths; tightest margin +1.3559 ms. Empirical for separations up to ~4100 km, not a general law -- see the docstring.
+  [PASS] reported latency is physical D/c under both latency_formula settings
+         0 of 28 paths disagree with independent D/c summation; the flag changes which topology is selected, never how delay is measured
+
+--- Experiment 1 summary quantities -------------------------------------
+  [PASS] every path uses exactly two ground links (one up, one down)
+         +Grid: hops 7.285 - isl 5.285; Greedy: hops 5.448 - isl 3.448; DoTD-forward: hops 5.107 - isl 3.107; DoTD-backward: hops 5.398 - isl 3.398
+  [PASS] +Grid needs more hops than every scored algorithm
+         +Grid 7.285; Greedy 5.448; DoTD-forward 5.107; DoTD-backward 5.398
+  [PASS] all algorithms are compared over the same reachable timesteps
+         reachable fractions [0.9361, 0.9361, 0.9361, 0.9361]; reachability is a property of the ground segment, not of the topology
+
+========================================================================
+  36/36 checks passed
+========================================================================

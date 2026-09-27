@@ -553,9 +553,12 @@ def main() -> int:
     p.add_argument("--steps", type=int, default=None)
     p.add_argument("--planes", type=int, default=10)
     p.add_argument("--per-plane", type=int, default=20)
+    p.add_argument("--step", type=float, default=SimConfig.step_s, help="stage-1 timestep, seconds")
+    p.add_argument("--duration-min", type=float, default=SimConfig.duration_s / 60.0, help="stage-1 window, minutes")
+    p.add_argument("--grid-gaps", choices=["strict", "bridge"], default="strict")
     args = p.parse_args()
 
-    tcfg = TopologyConfig()
+    tcfg = TopologyConfig(grid_gaps=args.grid_gaps)
     rcfg = RoutingConfig()
     print("=" * 72)
     print("  LEO CONSTELLATION SIMULATOR -- STAGE 3 VALIDATION")
@@ -563,7 +566,9 @@ def main() -> int:
     print("=" * 72)
 
     cfg = SimConfig(
-        selection=SelectionConfig(n_planes=args.planes, sats_per_plane=args.per_plane)
+        step_s=args.step,
+        duration_s=args.duration_min * 60.0,
+        selection=SelectionConfig(n_sats=args.planes * args.per_plane, n_planes=args.planes, sats_per_plane=args.per_plane)
     ).resolve(ROOT)
     dataset = run(cfg, verbose=True)
     n_steps = dataset.n_steps if args.steps is None else min(args.steps, dataset.n_steps)

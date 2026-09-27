@@ -44,6 +44,7 @@ from pathlib import Path
 ROOT = Path(__file__).parent
 TOPOLOGY_SUITE = (sys.executable, "validate_topology.py", "--steps", "300")
 ROUTING_SUITE = (sys.executable, "validate_routing.py", "--steps", "300")
+TRAFFIC_SUITE = (sys.executable, "validate_traffic.py", "--steps", "300")
 TIMEOUT_S = 900
 
 
@@ -233,6 +234,30 @@ MUTANTS: list[Mutant] = [
            "PLANE_GAP_DEG = 3.0",
            "PLANE_GAP_DEG = 0.02",
            "plane clustering splits real planes"),
+    # grid_gaps. The suite runs +Grid under one policy only, so each of these
+    # needs its own check: the synthetic full-shell layout (M43, M44), the
+    # PlusGrid-uses-the-flag ratio (M45), the label pin (M46), and the real-run
+    # connectivity check (M47, which splits the 10-plane baseline in the middle).
+    Mutant("M43", "topology/grid.py",
+           'GAP_FACTORS = {"strict": ADJACENT_GAP_FACTOR, "bridge": BRIDGED_GAP_FACTOR}',
+           'GAP_FACTORS = {"strict": ADJACENT_GAP_FACTOR, "bridge": ADJACENT_GAP_FACTOR}',
+           "bridge policy silently behaves as strict"),
+    Mutant("M44", "topology/grid.py",
+           "BRIDGED_GAP_FACTOR = 2.5",
+           "BRIDGED_GAP_FACTOR = 10.0",
+           "bridge policy joins planes across any gap"),
+    Mutant("M45", "topology/grid.py",
+           "build_plane_structure(dataset, GAP_FACTORS[config.grid_gaps])",
+           "build_plane_structure(dataset)",
+           "PlusGrid ignores grid_gaps"),
+    Mutant("M46", "topology/config.py",
+           'f"lookahead={self.lookahead}, grid_gaps={self.grid_gaps}"',
+           'f"lookahead={self.lookahead}"',
+           "variant label omits the grid gap policy"),
+    Mutant("M47", "topology/grid.py",
+           "            if g <= limit:\n",
+           "            if g <= limit and (len(planes) < 6 or a != planes[len(planes) // 2]):\n",
+           "+Grid split in two: middle plane pair never adjacent"),
     # --- metrics.py ------------------------------------------------------------
     Mutant("M38", "topology/metrics.py",
            "prev.adjacency ^ curr.adjacency",
@@ -316,7 +341,78 @@ MUTANTS: list[Mutant] = [
            "            latency += float(dataset.latency[t, a, b]) * 0.5",
            "ISL latency halved (path faster than light)",
            suite=ROUTING_SUITE),
-
+    # --- traffic/demand.py -----------------------------------------------------
+    Mutant("T01", "traffic/demand.py",
+           "(local_hour - cfg.diurnal_peak_hour)",
+           "(local_hour + cfg.diurnal_peak_hour)",
+           "diurnal peak at the wrong hour",
+           suite=TRAFFIC_SUITE),
+    Mutant("T02", "traffic/demand.py",
+           "rng.poisson(rate_bps * step_s / cfg.mean_flow_bits)",
+           "rng.poisson(rate_bps / cfg.mean_flow_bits)",
+           "arrivals ignore the step length",
+           suite=TRAFFIC_SUITE),
+    Mutant("T03", "traffic/demand.py",
+           "+ np.asarray(longitude_deg) / DEG_PER_HOUR",
+           "+ 0.0 * np.asarray(longitude_deg)",
+           "local time ignores longitude (every city peaks together)",
+           suite=TRAFFIC_SUITE),
+    # --- traffic/network.py ----------------------------------------------------
+    Mutant("T04", "traffic/network.py",
+           "gone = (self.backlog > 0) & (cap <= 0)",
+           "gone = np.zeros_like(cap, dtype=bool)",
+           "a removed link keeps its backlog (churn costs nothing)",
+           suite=TRAFFIC_SUITE),
+    Mutant("T05", "traffic/network.py",
+           "dropped = np.maximum(b - buffer, 0.0)",
+           "dropped = np.zeros_like(b)",
+           "buffer overflow vanishes uncounted",
+           suite=TRAFFIC_SUITE),
+    Mutant("T06", "traffic/network.py",
+           "b = self.backlog + arrivals - cap * self.dt",
+           "b = self.backlog + arrivals - cap",
+           "queue drains capacity per step, not capacity x step",
+           suite=TRAFFIC_SUITE),
+    Mutant("T07", "traffic/network.py",
+           "ii, jj = np.nonzero(np.triu(links.adjacency, k=1))",
+           "ii, jj = np.nonzero(np.triu(np.asarray(self.dataset.visible[t]), k=1))",
+           "load routed over visibility, not the selected topology",
+           suite=TRAFFIC_SUITE),
+    Mutant("T08", "traffic/network.py",
+           'if self.tcfg.direction == "to_gateway":',
+           "if False:",
+           "direction flag ignored",
+           suite=TRAFFIC_SUITE),
+    Mutant("T09", "traffic/network.py",
+           "keep = float(np.prod(1.0 - drop_frac[src, dst]))",
+           "keep = 1.0",
+           "drops never reduce delivered traffic",
+           suite=TRAFFIC_SUITE),
+    Mutant("T10", "traffic/network.py",
+           "delays.append(prop + float(qdelay[src, dst].sum()))",
+           "delays.append(prop)",
+           "queueing delay omitted from path delay",
+           suite=TRAFFIC_SUITE),
+    Mutant("T11", "traffic/network.py",
+           "            k = int(np.argmin(total))",
+           "            k = 0",
+           "city uses its first access satellite, not its cheapest route",
+           suite=TRAFFIC_SUITE),
+    Mutant("T12", "traffic/network.py",
+           "    if tcfg.feeder_is_default:\n",
+           "    if True:\n",
+           "feeder overrides silently ignored",
+           suite=TRAFFIC_SUITE),
+    Mutant("T13", "traffic/network.py",
+           '"bandwidth_hz": tcfg.feeder_bandwidth_hz,',
+           '"bandwidth_hz": None,',
+           "feeder bandwidth override dropped from the budget",
+           suite=TRAFFIC_SUITE),
+    Mutant("T14", "traffic/demand.py",
+           'if cfg.gateway_sites == "krishnan8":',
+           "if False:",
+           "gateway-sites flag ignored",
+           suite=TRAFFIC_SUITE),
 ]
 
 
@@ -399,7 +495,7 @@ def main(argv: list[str]) -> int:
     # Both suites must be green before any mutant means anything. A mutant runs
     # only against the suite meant to catch it, so a suite that was already red
     # would turn every one of its mutants into a false KILL.
-    for suite in (TOPOLOGY_SUITE, ROUTING_SUITE):
+    for suite in (TOPOLOGY_SUITE, ROUTING_SUITE, TRAFFIC_SUITE):
         if not any(m.suite == suite for m in chosen):
             continue
         print(f"Baseline: unmutated suite must pass ({' '.join(suite[1:])})")

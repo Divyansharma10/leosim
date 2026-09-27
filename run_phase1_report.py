@@ -549,7 +549,7 @@ def main() -> int:
     t_start = time.perf_counter()
 
     cfg = SimConfig(
-        selection=SelectionConfig(n_planes=args.planes, sats_per_plane=args.per_plane)
+        selection=SelectionConfig(n_sats=args.planes * args.per_plane, n_planes=args.planes, sats_per_plane=args.per_plane)
     ).resolve(ROOT)
     dataset = run(cfg, verbose=True)
     n_steps = dataset.n_steps if args.steps is None else min(args.steps, dataset.n_steps)

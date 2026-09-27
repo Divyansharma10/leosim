@@ -1,47 +1,47 @@
 Baseline: unmutated suite must pass (validate_topology.py --steps 300)
-  baseline passed in 13s
+  baseline passed in 15s
 Baseline: unmutated suite must pass (validate_routing.py --steps 300)
-  baseline passed in 12s
+  baseline passed in 13s
 
-M01 KILLED             11s  topology/scoring.py    latency term rewards high latency
+M01 KILLED             12s  topology/scoring.py    latency term rewards high latency
      -> DoTD-forward: no link passes through the Earth (recomputed from positions)
 M02 KILLED             15s  topology/scoring.py    churn term dropped from link_score
      -> link_score(cap_norm=0.75, lat_norm=0.25, churn=1)
 M03 KILLED             15s  topology/scoring.py    capacity normalised by per-timestep max, not running max
      -> end-to-end score, pair (0,2), t=1 (running max, churn=1)
-M04 KILLED             15s  topology/scoring.py    latency normalised by per-timestep max, not running max
+M04 KILLED             14s  topology/scoring.py    latency normalised by per-timestep max, not running max
      -> running max latency non-decreasing at every step
-M05 KILLED             15s  topology/scoring.py    c/D variant silently computes D/c
+M05 KILLED             14s  topology/scoring.py    c/D variant silently computes D/c
      -> latency_formula=c_over_d selects a different topology than d_over_c
 M06 KILLED             13s  topology/scoring.py    churn matrix ignores previous topology
      -> end-to-end score, pair (0,2), t=1 (running max, churn=1)
-M07 KILLED             18s  topology/scoring.py    normalised capacity may exceed 1
+M07 KILLED             15s  topology/scoring.py    normalised capacity may exceed 1
      -> a value at twice the running max normalises to 1, not above
-M08 KILLED             18s  topology/scoring.py    latency_formula flag ignored
+M08 KILLED             14s  topology/scoring.py    latency_formula flag ignored
      -> end-to-end score, pair (0,2), t=0, paper's c/D latency
-M09 KILLED              5s  topology/dotd.py       running max never updated
+M09 KILLED              4s  topology/dotd.py       running max never updated
      -> end-to-end score, pair (0,2), t=0 (no churn)
-M10 KILLED             13s  topology/dotd.py       forward lookahead term dropped
+M10 KILLED             11s  topology/dotd.py       forward lookahead term dropped
      -> DoTD-forward differs from Greedy on a fraction of timesteps
-M11 KILLED             17s  topology/dotd.py       backward accumulation term dropped
+M11 KILLED             11s  topology/dotd.py       backward accumulation term dropped
      -> DoTD-backward differs from Greedy on a fraction of timesteps
-M12 KILLED             20s  topology/dotd.py       objective flag ignored (argmin never applied)
+M12 KILLED             15s  topology/dotd.py       objective flag ignored (argmin never applied)
      -> objective=min selects a different topology than max
-M13 KILLED             24s  topology/dotd.py       Greedy inherits the lookahead from a shared config
+M13 KILLED             23s  topology/dotd.py       Greedy inherits the lookahead from a shared config
      -> DoTD-forward differs from Greedy on a fraction of timesteps
-M14 KILLED             15s  topology/dotd.py       forward window weights the far future most
+M14 KILLED             11s  topology/dotd.py       forward window weights the far future most
      -> synthetic: tied now, forward DoTD takes the link that is good soonest
 M15 KILLED              8s  topology/dotd.py       forward window contains only the current step
      -> clip check discriminates: future links do exceed the causal max here
-M16 KILLED             15s  topology/dotd.py       backward accumulation unbounded (plain discounted sum)
+M16 KILLED             14s  topology/dotd.py       backward accumulation unbounded (plain discounted sum)
      -> backward accumulation stays within [0, 1] (bounded, per paper's finiteness)
 M17 KILLED             12s  topology/dotd.py       edge term uses only j's accumulation (asymmetric)
      -> DoTD-backward: priority matrix symmetric (i and j rank the link identically)
 M18 KILLED              1s  topology/dotd.py       candidates not restricted to visible pairs
      -> (non-zero exit, no FAIL line)
-M19 KILLED             16s  topology/dotd.py       selector never sees its previous topology
+M19 KILLED             14s  topology/dotd.py       selector never sees its previous topology
      -> end-to-end score, pair (0,2), t=1 (running max, churn=1)
-M20 SURVIVED-EQUIV     16s  topology/dotd.py       score not masked to visible pairs
+M20 SURVIVED-EQUIV     15s  topology/dotd.py       score not masked to visible pairs
      -> quality_matrix already zeroes invisible pairs; the only unmasked term is churn on a pair linked at t-1 and invisible at t, which b_matching excludes as a candidate and _update_backward never reads (it sums selected links only)
 M21 KILLED              1s  topology/base.py       b_matching checks only one endpoint's degree
      -> (non-zero exit, no FAIL line)
@@ -51,65 +51,75 @@ M23 KILLED             15s  topology/base.py       b_matching takes lowest prior
      -> Greedy: no link passes through the Earth (recomputed from positions)
 M24 KILLED             15s  topology/base.py       assert_valid degree check off by one
      -> rejects degree U+1=5
-M25 KILLED             18s  topology/base.py       assert_valid skips visibility
+M25 KILLED             13s  topology/base.py       assert_valid skips visibility
      -> rejects link not visible in stage-1 data
-M26 KILLED             16s  topology/base.py       assert_valid skips symmetry
+M26 KILLED             14s  topology/base.py       assert_valid skips symmetry
      -> rejects asymmetric link
-M27 KILLED             18s  topology/base.py       assert_valid skips self-links
+M27 KILLED             13s  topology/base.py       assert_valid skips self-links
      -> rejects self-link
-M28 SURVIVED-EQUIV     17s  topology/base.py       step() no longer calls assert_valid
+M28 SURVIVED-EQUIV     14s  topology/base.py       step() no longer calls assert_valid
      -> the in-step guard is defence in depth; on correct selectors it never fires, and the suite re-derives every constraint independently of it, which is the point -- M21/M22/M18/M34 show those independent checks still catch the bugs the guard exists for
-M29 KILLED             20s  topology/base.py       step() accepts a first step other than t=0
+M29 KILLED             14s  topology/base.py       step() accepts a first step other than t=0
      -> step() refuses a non-consecutive timestep
-M30 KILLED             21s  topology/grid.py       in-plane ring skips a satellite
+M30 KILLED             14s  topology/grid.py       in-plane ring skips a satellite
      -> +Grid churn far below every scored algorithm
-M31 KILLED             18s  topology/grid.py       cross-plane assignment maximises phase difference
+M31 KILLED             11s  topology/grid.py       cross-plane assignment maximises phase difference
      -> non-vacuous: some satellites have all 4 grid slots visible
-M32 KILLED             17s  topology/grid.py       planes adjacent across an unsampled plane
+M32 KILLED             14s  topology/grid.py       planes adjacent across an unsampled plane
      -> a plane across a 90 degree gap is not adjacent
-M33 KILLED             17s  topology/grid.py       plane clustering merges neighbouring planes
+M33 KILLED             14s  topology/grid.py       plane clustering merges neighbouring planes
      -> each stage-1 plane label resolves to exactly one real plane
 M34 KILLED              1s  topology/grid.py       +Grid ignores visibility
      -> (non-zero exit, no FAIL line)
-M35 KILLED             18s  topology/grid.py       first and last plane always wrap
+M35 KILLED             13s  topology/grid.py       first and last plane always wrap
      -> +Grid churn far below every scored algorithm
-M36 KILLED             18s  topology/grid.py       RAAN measured from the wrong axis
+M36 KILLED             13s  topology/grid.py       RAAN measured from the wrong axis
      -> a plane across a 90 degree gap is not adjacent
 M37 KILLED             15s  topology/grid.py       plane clustering splits real planes
      -> orbital planes are cleanly separable
+M43 KILLED             13s  topology/grid.py       bridge policy silently behaves as strict
+     -> bridge gap policy joins the same shell into one wrapped grid
+M44 KILLED             14s  topology/grid.py       bridge policy joins planes across any gap
+     -> bridge gap policy still rejects a 90 degree gap
+M45 KILLED             14s  topology/grid.py       PlusGrid ignores grid_gaps
+     -> PlusGrid takes its adjacency limit from grid_gaps
+M46 KILLED             14s  topology/config.py     variant label omits the grid gap policy
+     -> variant label records the grid gap policy
+M47 KILLED             14s  topology/grid.py       +Grid split in two: middle plane pair never adjacent
+     -> +Grid baseline is one connected component at every timestep
 M38 KILLED             14s  topology/metrics.py    churn counts kept links instead of changed links
      -> +Grid churn far below every scored algorithm
-M39 KILLED             13s  topology/metrics.py    connected flag true for any graph
+M39 KILLED             14s  topology/metrics.py    connected flag true for any graph
      -> connected flag is False for a topology that is not connected
-M40 KILLED             16s  topology/metrics.py    total capacity reported in Mbps under a Gbps label
+M40 KILLED             14s  topology/metrics.py    total capacity reported in Mbps under a Gbps label
      -> +Grid: churn, components, capacity, latency match recomputation
-M41 KILLED             20s  topology/metrics.py    latency reported in us under an ms label
+M41 KILLED             14s  topology/metrics.py    latency reported in us under an ms label
      -> +Grid: churn, components, capacity, latency match recomputation
-M42 KILLED             15s  topology/metrics.py    churn at t=0 counts every link as new
+M42 KILLED             14s  topology/metrics.py    churn at t=0 counts every link as new
      -> churn at t=0 is 0 for every algorithm (no previous topology to differ from)
-R01 KILLED             15s  routing/stations.py    elevation mask ignored (horizon used instead)
+R01 KILLED             13s  routing/stations.py    elevation mask ignored (horizon used instead)
      -> every access link is above the elevation mask
-R02 KILLED             15s  routing/stations.py    geocentric radial used as the local vertical
+R02 KILLED             11s  routing/stations.py    geocentric radial used as the local vertical
      -> New York: geodetic vertical departs from radial by the WGS84 amount
-R03 KILLED             15s  routing/stations.py    station frozen at t=0 (does not rotate with the Earth)
+R03 KILLED             12s  routing/stations.py    station frozen at t=0 (does not rotate with the Earth)
      -> New York: geodetic vertical departs from radial by the WGS84 amount
 R04 KILLED             12s  routing/stations.py    access cap keeps the lowest-elevation links
      -> max_access_links caps the count and keeps the highest-elevation link
-R05 KILLED             18s  routing/paths.py       routes over every visible link, not the selected topology
+R05 KILLED             15s  routing/paths.py       routes over every visible link, not the selected topology
      -> +Grid: ISL edges in the graph are exactly the selected links
-R06 KILLED              6s  routing/paths.py       hop metric weights ISL edges 0 (free hops)
+R06 KILLED              5s  routing/paths.py       hop metric weights ISL edges 0 (free hops)
      -> crash: ValueError: t=0: 331 edges have non-positive cost under metric 'hop'; a zero weight would vanish from the grap
-R07 KILLED             15s  routing/paths.py       graph left directed (upper triangle only)
+R07 KILLED             13s  routing/paths.py       graph left directed (upper triangle only)
      -> graph is symmetric and labelled satellites-then-stations
 R08 KILLED             13s  routing/paths.py       isl_hops never counted
      -> every path uses exactly two ground links (one up, one down)
-R09 KILLED             18s  routing/paths.py       ground-link latency omitted from the path total
+R09 KILLED             13s  routing/paths.py       ground-link latency omitted from the path total
      -> path latency equals the sum of its edges' stage-1 latencies
-R10 KILLED             11s  routing/paths.py       unreachable reported as a zero-hop path
+R10 KILLED             12s  routing/paths.py       unreachable reported as a zero-hop path
      -> no path is reported as unreachable rather than as a zero-hop path
-R11 KILLED             13s  routing/paths.py       ISL latency halved (path faster than light)
+R11 KILLED             11s  routing/paths.py       ISL latency halved (path faster than light)
      -> path latency equals the sum of its edges' stage-1 latencies
 
 ========================================================================
-  51/53 killed; 2 survived as believed-equivalent; 0 UNEXPECTED survivors; 0 invalid
+  56/58 killed; 2 survived as believed-equivalent; 0 UNEXPECTED survivors; 0 invalid
 ========================================================================

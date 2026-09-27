@@ -1,0 +1,70 @@
+========================================================================
+  LEO CONSTELLATION SIMULATOR -- STAGE 4 VALIDATION
+  variant: load=2Gbps, direction=to_user, gateways=20, buffer=50ms | metric=hop, mask=25deg, access=all
+========================================================================
+
+--- Demand: data, diurnal shape, Poisson arrivals -----------------------
+  [PASS] cities.csv is the pinned file
+         sha256 5b91796b55fa8b57441b6355e6d23f23d2da8054c7a1876f64e38469aab9c0ab
+  [PASS] 200 cities, 20 gateways in distinct countries
+         200 cities; gateway countries ['CN', 'IN', 'PK', 'BR', 'NG', 'TR', 'VN', 'US', 'ID', 'EG', 'KR', 'JP', 'CD', 'ZA', 'TW', 'BD', 'AU', 'RU', 'MX', 'CO']
+  [PASS] local solar hour is UTC + longitude/15, wrapped to [0, 24)
+         UTC 12:00 at lon 0/90/-180 -> [12.0, 18.0, 0.0]
+  [PASS] diurnal factor is 1 at the peak hour and the pinned trough 12 h away
+         peak 1.000000, trough 0.200000 (pinned 0.2), range [0.2000, 1.0000]
+  [PASS] with a flat day, expected total equals peak_total_gbps
+         measured 2000000000 bit/s, pinned 2000000000 bit/s, relative error 0.00e+00 (tolerance 1e-12)
+  [PASS] Poisson arrivals average rate x step, independent of flow size
+         realised / expected bits: [np.float64(1.00311), np.float64(0.99422)] (flow sizes 1x and 20x; 400 steps of 5 s)
+  [PASS] arrivals are random, not the expectation (Poisson check is not vacuous)
+         first-step spread vs expectation: max |diff| 4.76e+07 bits
+
+--- Fluid queues: closed forms on a 3-satellite line --------------------
+  [PASS] under capacity: no backlog, no drops, everything delivered
+         backlog [0.0, 0.0], dropped [0.0, 0.0], delivered [np.float64(500000000.0), np.float64(500000000.0)]
+  [PASS] under capacity, delay is propagation alone
+         measured 0.024 s, pinned 0.024 s, relative error 0.00e+00 (tolerance 1e-09)
+  [PASS] overload step 0: excess queues on both ISLs
+         measured 60000000 bits, pinned 60000000 bits, relative error 0.00e+00 (tolerance 1e-09)
+  [PASS] overload step 0: buffer not yet full, nothing dropped
+         dropped 0.0
+  [PASS] overload step 1: buffer overflows by the pinned amount
+         measured 20000000 bits, pinned 20000000 bits, relative error 0.00e+00 (tolerance 1e-09)
+  [PASS] overload step 1: backlog clipped at the buffer
+         measured 100000000 bits, pinned 100000000 bits, relative error 0.00e+00 (tolerance 1e-09)
+  [PASS] overload step 1: delivered is offered thinned by each link's drop fraction
+         measured 1010097087 bits, pinned 1010097087 bits, relative error 0.00e+00 (tolerance 1e-09)
+  [PASS] overload adds queueing delay on top of propagation
+         delay 124.000 ms vs propagation 24.0 ms (two full 50 ms buffers add 100 ms)
+  [PASS] queue drains capacity x step, not capacity (5 s step)
+         measured 200000000 bits, pinned 200000000 bits, relative error 0.00e+00 (tolerance 1e-09)
+  [PASS] a removed link loses its backlog to churn
+         measured 30000000 bits, pinned 30000000 bits, relative error 0.00e+00 (tolerance 1e-09)
+  [PASS] churn loss discriminates: nothing is lost when no link is removed
+         churn lost without removal 0.0; with removal the city still routes via sat 1 (1.03e+09 bits)
+  [PASS] direction flag decides which way the queues fill
+         to_user: backlog 0->1 3e+07, 1->0 0; to_gateway: 0->1 0, 1->0 3e+07 (gateway node 4, city node 3)
+
+--- Routing: ground stations are never relays ---------------------------
+  [PASS] a city stranded on an island has no path, even via another city
+         city A path []; city B path [6, 0, 1, 5] (gateway -> 0 -> 1 -> B)
+[cache] hit C:\Users\divya\leosim\cache\54a1268e38b278ba
+
+--- Real run: conservation, graph, gateway choice -----------------------
+  [PASS] offered = no-access + no-path + routed, every step, every selector
+         worst relative imbalance 0.00e+00
+  [PASS] delivered never exceeds routed
+  [PASS] no-access demand is identical for every selector (a ground-segment property)
+         {'+Grid': np.float64(93728000000.0), 'Greedy': np.float64(93728000000.0), 'DoTD-forward': np.float64(93728000000.0)}
+  [PASS] the run is not vacuous: some demand is routed, some is not
+         Greedy routed 79.8% of offered
+  [PASS] every ISL on a routed path is a selected link
+         237 ISL hops checked, 0 not in the selection
+  [PASS] graph check discriminates: routing over visibility would give shorter paths
+         28 city-timesteps where the visibility graph is strictly shorter
+  [PASS] each city egresses at its cheapest gateway (matches stage-3 routing)
+         t=[119, 239]: 276 city-timesteps compared, 0 mismatches
+
+========================================================================
+  27/27 checks passed
+========================================================================

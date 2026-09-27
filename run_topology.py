@@ -32,7 +32,7 @@ CHURN_SMOOTH_S = 30.0
 
 
 def build_sim_config(args) -> SimConfig:
-    selection = SelectionConfig(n_planes=args.planes, sats_per_plane=args.per_plane)
+    selection = SelectionConfig(n_sats=args.planes * args.per_plane, n_planes=args.planes, sats_per_plane=args.per_plane)
     return SimConfig(selection=selection).resolve(ROOT)
 
 
@@ -43,6 +43,7 @@ def build_topology_config(args) -> TopologyConfig:
         w_lookahead=args.w_lookahead,
         objective=args.objective,
         latency_formula=args.latency_formula,
+        grid_gaps=args.grid_gaps,
     )
 
 
@@ -102,6 +103,7 @@ def main() -> None:
     p.add_argument("--w-lookahead", type=float, default=TopologyConfig.w_lookahead)
     p.add_argument("--objective", choices=["max", "min"], default="max")
     p.add_argument("--latency-formula", choices=["d_over_c", "c_over_d"], default="d_over_c")
+    p.add_argument("--grid-gaps", choices=["strict", "bridge"], default="strict")
     p.add_argument("--out", default="results")
     args = p.parse_args()
 
@@ -124,7 +126,7 @@ def main() -> None:
 
     out_dir = ROOT / args.out
     out_dir.mkdir(exist_ok=True)
-    tag = f"{tcfg.objective}_{tcfg.latency_formula}"
+    tag = tcfg.file_tag
     df.to_csv(out_dir / f"topology_metrics_{tag}.csv", index=False)
     summary.to_csv(out_dir / f"topology_summary_{tag}.csv")
     png = plot_comparison(df, tcfg.variant_label, dataset.config.step_s, out_dir / f"topology_comparison_{tag}.png")

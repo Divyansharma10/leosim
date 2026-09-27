@@ -69,6 +69,14 @@ PLANE_GAP_DEG = 3.0
 # ASSUMED: structural tolerance, not from the paper.
 ADJACENT_GAP_FACTOR = 1.5
 
+# Used instead of ADJACENT_GAP_FACTOR under TopologyConfig.grid_gaps="bridge".
+# 2.5 admits a doubled gap (one empty slot in the shell, 20 deg on the 70 deg
+# shell) and still rejects a tripled one. ASSUMED: structural tolerance, not
+# from the paper -- the paper does not say how its grid treats missing planes.
+BRIDGED_GAP_FACTOR = 2.5
+
+GAP_FACTORS = {"strict": ADJACENT_GAP_FACTOR, "bridge": BRIDGED_GAP_FACTOR}
+
 # Planes are reported as not cleanly separable when a member's normal lies
 # further from its plane's mean than this fraction of the smallest gap to a
 # neighbouring plane. ASSUMED diagnostic threshold.
@@ -241,7 +249,9 @@ def identify_planes(normals: np.ndarray, gap_deg: float = PLANE_GAP_DEG) -> np.n
     return labels
 
 
-def build_plane_structure(dataset: LinkDataset) -> PlaneStructure:
+def build_plane_structure(
+    dataset: LinkDataset, gap_factor: float = ADJACENT_GAP_FACTOR
+) -> PlaneStructure:
     normals = orbit_normals(dataset)
     plane_index = identify_planes(normals)
     diag = plane_diagnostics(plane_index, normals)
@@ -270,7 +280,7 @@ def build_plane_structure(dataset: LinkDataset) -> PlaneStructure:
         # Median over every consecutive gap including the wrap, so a sample
         # covering one arc of the shell does not let the long wrap gap vote.
         all_gaps = np.concatenate([inner_gaps, [wrap_gap]]) if len(planes) >= 3 else inner_gaps
-        limit = ADJACENT_GAP_FACTOR * float(np.median(all_gaps))
+        limit = gap_factor * float(np.median(all_gaps))
         for a, b, g in zip(planes[:-1], planes[1:], inner_gaps):
             if g <= limit:
                 adjacent[a].append(b)
@@ -369,7 +379,7 @@ class PlusGrid(TopologySelector):
     name = "+Grid"
 
     def __init__(self, dataset: LinkDataset, config: TopologyConfig) -> None:
-        self.structure = build_plane_structure(dataset)
+        self.structure = build_plane_structure(dataset, GAP_FACTORS[config.grid_gaps])
         self.grid, self.kind = structural_pairs(self.structure)
         deg = self.grid.sum(axis=1)
         if deg.max() > config.u_max:

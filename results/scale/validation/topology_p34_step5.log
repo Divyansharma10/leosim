@@ -1,0 +1,222 @@
+========================================================================
+  LEO CONSTELLATION SIMULATOR -- STAGE 2 VALIDATION
+  variant: objective=max, latency=d_over_c, lookahead=forward
+========================================================================
+[cache] hit C:\Users\divya\leosim\cache\5c0eba4a8fc0aae9
+
+  ran 4 selectors x 360 timesteps
+
+--- Hard constraints, every algorithm, every timestep -------------------
+  [PASS] +Grid: every link visible in stage-1 data
+         0 of 378000 link-timesteps not visible
+  [PASS] +Grid: no link passes through the Earth (recomputed from positions)
+         0 links below 6428 km; lowest segment clearance 6433.4 km
+  [PASS] +Grid: no link beyond max range
+         0 links over 7000 km; longest 5235.0 km
+  [PASS] +Grid: degree <= U=4 for every satellite and timestep
+         max degree 4; 0 sat-timesteps over U
+  [PASS] +Grid: link set symmetric, no self-links
+         0 asymmetric pairs, 0 self-links
+  [PASS] Greedy: every link visible in stage-1 data
+         0 of 431736 link-timesteps not visible
+  [PASS] Greedy: no link passes through the Earth (recomputed from positions)
+         0 links below 6428 km; lowest segment clearance 6428.2 km
+  [PASS] Greedy: no link beyond max range
+         0 links over 7000 km; longest 5308.7 km
+  [PASS] Greedy: degree <= U=4 for every satellite and timestep
+         max degree 4; 0 sat-timesteps over U
+  [PASS] Greedy: link set symmetric, no self-links
+         0 asymmetric pairs, 0 self-links
+  [PASS] DoTD-forward: every link visible in stage-1 data
+         0 of 431657 link-timesteps not visible
+  [PASS] DoTD-forward: no link passes through the Earth (recomputed from positions)
+         0 links below 6428 km; lowest segment clearance 6428.1 km
+  [PASS] DoTD-forward: no link beyond max range
+         0 links over 7000 km; longest 5300.2 km
+  [PASS] DoTD-forward: degree <= U=4 for every satellite and timestep
+         max degree 4; 0 sat-timesteps over U
+  [PASS] DoTD-forward: link set symmetric, no self-links
+         0 asymmetric pairs, 0 self-links
+  [PASS] DoTD-backward: every link visible in stage-1 data
+         0 of 431490 link-timesteps not visible
+  [PASS] DoTD-backward: no link passes through the Earth (recomputed from positions)
+         0 links below 6428 km; lowest segment clearance 6428.2 km
+  [PASS] DoTD-backward: no link beyond max range
+         0 links over 7000 km; longest 5301.9 km
+  [PASS] DoTD-backward: degree <= U=4 for every satellite and timestep
+         max degree 4; 0 sat-timesteps over U
+  [PASS] DoTD-backward: link set symmetric, no self-links
+         0 asymmetric pairs, 0 self-links
+
+--- Constraint checks are not vacuous -----------------------------------
+  [PASS] Greedy: satellites at full degree U, averaged over run
+         measured 0.991403, required 0.5..1
+         below 0.5 would mean the degree cap is rarely exercised
+  [PASS] DoTD-forward: satellites at full degree U, averaged over run
+         measured 0.990733, required 0.5..1
+         below 0.5 would mean the degree cap is rarely exercised
+  [PASS] DoTD-backward: satellites at full degree U, averaged over run
+         measured 0.990368, required 0.5..1
+         below 0.5 would mean the degree cap is rarely exercised
+
+--- Constraint enforcement rejects invalid link sets --------------------
+  [PASS] rejects asymmetric link
+         raised: t=0: not symmetric -- 1 asymmetric pairs, first (0,2): a[i,j]=True a[j,i]=False
+  [PASS] rejects self-link
+         raised: t=0: self-link on sat 0
+  [PASS] rejects link not visible in stage-1 data
+         raised: t=0: 1 selected links not visible in stage-1 data, first (0,1) at 9828.8 km
+  [PASS] rejects degree U+1=5
+         raised: t=0: sat 346 has degree 5 > U=4
+  [PASS] accepts a valid degree-U set
+         sat 346 at degree 4
+  [PASS] step() refuses a non-consecutive timestep
+         t=5 after reset raised ValueError
+
+--- Score arithmetic: hand-checkable pins -------------------------------
+  [PASS] link_score(cap_norm=0.75, lat_norm=0.25, churn=1)
+         measured 0.8, pinned 0.8, relative error 0.00e+00 (tolerance 1e-12)
+         0.4*0.75 + 0.4*(1-0.25) + 0.2*1 = 0.30 + 0.30 + 0.20
+  [PASS] end-to-end score, pair (0,2), t=0 (no churn)
+         measured 0.6, pinned 0.6, relative error 1.85e-16 (tolerance 1e-12)
+         cap 1.5/2.0 Gbps, lat 5/20 ms: 0.4*0.75 + 0.4*0.75 + 0
+  [PASS] synthetic pair (0,2) was linked at t=0, so churn term applies at t=1
+         adjacency[0,2] at t=0 = True
+  [PASS] end-to-end score, pair (0,2), t=1 (running max, churn=1)
+         measured 0.65, pinned 0.65, relative error 1.71e-16 (tolerance 1e-12)
+         cap 0.75/2.0 Gbps (running max holds 2.0), lat 5/20 ms, churn 1:
+         0.4*0.375 + 0.4*0.75 + 0.2 = 0.15 + 0.30 + 0.20
+         a per-timestep max would give 0.80
+  [PASS] end-to-end score, pair (0,2), t=0, paper's c/D latency
+         measured 0.5, pinned 0.5, relative error 0.00e+00 (tolerance 1e-12)
+         c/D: 299.792 (1000 km, max) vs 149.896 (2000 km) -> 0.5
+         0.4*0.75 + 0.4*(1-0.5) = 0.30 + 0.20
+
+--- Running maximum (Eq. 12) --------------------------------------------
+  [PASS] running max capacity non-decreasing at every step
+         0 decreases over 360 steps; range 1.96169e+09 -> 2.2631e+09
+  [PASS] running max latency non-decreasing at every step
+         0 decreases over 360 steps; range 0.0177166 -> 0.0177307
+  [PASS] running max capacity at t equals max over timesteps [0, t] (causal)
+         worst relative mismatch 0.00e+00 over 10 checkpoints
+  [PASS] monotonicity check discriminates: per-timestep max does decrease here
+         per-timestep max capacity decreases at 121 of 359 steps
+
+--- Normalisation stays inside [0, 1] -----------------------------------
+  [PASS] a value at twice the running max normalises to 1, not above
+         capacity -> 1.000000, latency -> 1.000000, both required <= 1
+  [PASS] forward lookahead term stays within [0, 1] over the real dataset
+         largest forward term over 360 timesteps: 0.980379
+  [PASS] clip check discriminates: future links do exceed the causal max here
+         48 of 360 timesteps have a sample inside the horizon above the running max at that step
+
+--- Lookahead is doing something ----------------------------------------
+  [PASS] DoTD-forward differs from Greedy on a fraction of timesteps
+         measured 1, required 0.01..1
+         360 of 360 timesteps differ
+  [PASS] DoTD-backward differs from Greedy on a fraction of timesteps
+         measured 0.966667, required 0.01..1
+         348 of 360 timesteps differ
+  [PASS] synthetic: Greedy takes the link that is better now but occluded from t=2
+         Greedy edges at t=0: [(0, 1)]
+  [PASS] synthetic: forward DoTD anticipates and takes the persistent link
+         DoTD-forward edges at t=0: [(0, 2)]
+  [PASS] synthetic: tied now, forward DoTD takes the link that is good soonest
+         edges at t=0: [(0, 1)]; (0,1) strong over t=1..9, (0,2) strong from t=10, equal at t=0 and over the window unweighted
+  [PASS] forward discount falls strictly with offset (near future weighted most)
+         term at offsets [1, 5, 10, 15, 20]: [0.035683, 0.029215, 0.022752, 0.01772, 0.0138]
+  [PASS] Greedy has no accumulation term (priority == score at last step)
+         lookahead=none
+  [PASS] backward accumulation stays within [0, 1] (bounded, per paper's finiteness)
+         accumulated score range over run: 0.0099 .. 0.8232
+  [PASS] Greedy: priority matrix symmetric (i and j rank the link identically)
+         max |p - p.T| = 0
+  [PASS] DoTD-forward: priority matrix symmetric (i and j rank the link identically)
+         max |p - p.T| = 0
+  [PASS] DoTD-backward: priority matrix symmetric (i and j rank the link identically)
+         max |p - p.T| = 0
+
+--- Matching behaves as specified ---------------------------------------
+  [PASS] Greedy: maximal -- no unused visible pair with both endpoints below U
+         0 such pairs across run
+  [PASS] DoTD-forward: maximal -- no unused visible pair with both endpoints below U
+         0 such pairs across run
+  [PASS] Greedy (max): top-priority visible edge selected at every timestep
+         missed at 0 of 360 timesteps
+
+--- Paper-ambiguity flags are live --------------------------------------
+  [PASS] objective=min selects a different topology than max
+         differs on 100% of 120 timesteps
+  [PASS] objective=min selects lower-scoring links than max
+         mean selected instantaneous score: min 0.1460 vs max 0.7251
+  [PASS] latency_formula=c_over_d selects a different topology than d_over_c
+         differs on 100% of 120 timesteps
+  [PASS] c_over_d rewards longer links, as the inversion predicts
+         mean selected link length: c/D 2150 km vs D/c 1238 km
+
+--- +Grid structure -----------------------------------------------------
+  [PASS] orbital planes are cleanly separable
+         34 planes; max intra-plane spread 2.662 deg vs min inter-plane gap 8.993 deg (required spread < 0.5 x gap)
+         stage-1 plane_index clusters contain {0: 1, 1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, 7: 1, 8: 1, 9: 1, 10: 1, 11: 1, 12: 1, 13: 1, 14: 1, 15: 1, 16: 1, 17: 1, 18: 1, 19: 1, 20: 1, 21: 1, 22: 1, 23: 1, 24: 1, 25: 1, 26: 1, 27: 1, 28: 1, 29: 1, 30: 1, 31: 1, 32: 1, 33: 1} real planes
+  [PASS] each stage-1 plane label resolves to exactly one real plane
+         34 planes recovered from normals, 34 stage-1 labels; real planes per label {0: 1, 1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, 7: 1, 8: 1, 9: 1, 10: 1, 11: 1, 12: 1, 13: 1, 14: 1, 15: 1, 16: 1, 17: 1, 18: 1, 19: 1, 20: 1, 21: 1, 22: 1, 23: 1, 24: 1, 25: 1, 26: 1, 27: 1, 28: 1, 29: 1, 30: 1, 31: 1, 32: 1, 33: 1}; recovered plane populations [20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 19, 18, 18, 18, 18, 17, 17, 17, 17, 17, 16, 16, 16, 15, 15, 13, 10, 4]
+  [PASS] structural link count matches count derived from plane sizes and adjacency
+         grid has 1106 links, plane sizes and adjacency imply 1106
+  [PASS] in-plane links join same-plane sats; cross-plane links join adjacent planes only
+         0 in-plane links across planes, 0 cross links to non-adjacent planes
+  [PASS] structural slots per sat: <= 2 in-plane, <= 1 per adjacent plane
+         max in-plane per sat 2; one partner per adjacent plane: True
+  [PASS] +Grid realised degree == visible structural slots, every sat, every timestep
+         0 mismatches
+  [PASS] non-vacuous: some satellites have all 4 grid slots visible
+         117720 sat-timesteps (54.4%) where geometry allows 4; all reached degree 4 per check above
+  [PASS] +Grid churn far below every scored algorithm
+         +Grid 0.0000/step vs lowest scored (DoTD-backward) 32.1031/step; ratio 0.0000, required <= 0.1
+  [PASS] +Grid output invariant to every scoring parameter
+         compared 120 timesteps under changed weights, objective, latency formula, lookahead
+
+--- Plane adjacency respects its gap limit ------------------------------
+  [PASS] hand-placed planes are recovered one-for-one
+         5 planes recovered from 5 placed; RAANs [0.0, 10.0, 20.0, 30.0, 120.0]
+  [PASS] a plane across a 90 degree gap is not adjacent
+         gap limit 15.0 deg; plane at 120 deg adjacency: []
+  [PASS] first and last plane do not wrap across an unsampled arc
+         wrap gap 240 deg against limit 15.0 deg; wraps=False
+  [PASS] adjacency is exactly the consecutive pairs inside the limit
+         adjacent pairs by RAAN: [(10, 0), (10, 20), (20, 30)], expected the three 10 degree steps
+
+--- Metrics agree with independent recomputation ------------------------
+  [PASS] +Grid: churn, components, capacity, latency match recomputation
+         25 timesteps: mismatches churn 0, components 0, capacity 0, latency 0
+  [PASS] +Grid: degree histogram has nothing above U
+         deg_over_U total 0, degree_max 4
+  [PASS] Greedy: churn, components, capacity, latency match recomputation
+         25 timesteps: mismatches churn 0, components 0, capacity 0, latency 0
+  [PASS] Greedy: degree histogram has nothing above U
+         deg_over_U total 0, degree_max 4
+  [PASS] DoTD-forward: churn, components, capacity, latency match recomputation
+         25 timesteps: mismatches churn 0, components 0, capacity 0, latency 0
+  [PASS] DoTD-forward: degree histogram has nothing above U
+         deg_over_U total 0, degree_max 4
+  [PASS] DoTD-backward: churn, components, capacity, latency match recomputation
+         25 timesteps: mismatches churn 0, components 0, capacity 0, latency 0
+  [PASS] DoTD-backward: degree histogram has nothing above U
+         deg_over_U total 0, degree_max 4
+  [PASS] churn metric is the undirected symmetric difference; identical sets give 0
+         path 0-1-2 -> single edge 0-2: remove 2, add 1 = 3; identical sets = 0
+  [PASS] churn at t=0 is 0 for every algorithm (no previous topology to differ from)
+         t=0 churn by algorithm: {'+Grid': 0, 'Greedy': 0, 'DoTD-forward': 0, 'DoTD-backward': 0}; link_churn(None, ...) = 0
+  [PASS] t=0 churn check discriminates: the topologies there are not empty
+         links at t=0: {'+Grid': 1050, 'Greedy': 1197, 'DoTD-forward': 1198, 'DoTD-backward': 1197}
+  [PASS] connected flag is False for a topology that is not connected
+         two disjoint links over 601 satellites: connected=False, n_components=599 (independent BFS: 599)
+  [FAIL] connected-flag check discriminates: the real runs are all connected
+         869 of 1440 algorithm-timesteps connected, so recomputation alone cannot see a flag stuck at True
+  [PASS] every metrics row carries the active variant label
+         variant column: ['objective=max, latency=d_over_c, lookahead=forward']
+
+========================================================================
+  85/86 checks passed
+  failed:
+    - connected-flag check discriminates: the real runs are all connected
+========================================================================

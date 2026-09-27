@@ -35,6 +35,18 @@ LatencyFormula = Literal["d_over_c", "c_over_d"]
 # "none"     -- no accumulation term at all; this is the Greedy baseline.
 LookaheadDirection = Literal["forward", "backward", "none"]
 
+# How +Grid treats a doubled RAAN gap between consecutive planes. NOT from the
+# paper, which does not say how its grid handles missing planes; both are ours.
+# "strict" -- a gap over topology.grid.ADJACENT_GAP_FACTOR x the median (15 deg
+#             on the 70 deg shell) is not adjacent: the slot is assumed to hold
+#             an unsampled plane, so linking across it would skip a neighbour.
+#             Right for a partial window of the shell.
+# "bridge" -- gaps up to topology.grid.BRIDGED_GAP_FACTOR x the median are
+#             adjacent: an empty slot in the real shell has no plane to skip.
+#             On the full 34-plane shell, whose two empty slots leave 20 deg
+#             gaps, "strict" splits +Grid into two disconnected halves.
+GridGapPolicy = Literal["strict", "bridge"]
+
 
 @dataclass(frozen=True)
 class TopologyConfig:
@@ -77,6 +89,9 @@ class TopologyConfig:
     objective: Objective = "max"
     latency_formula: LatencyFormula = "d_over_c"
 
+    # --- +Grid structure: our choice, not the paper's -------------------------
+    grid_gaps: GridGapPolicy = "strict"
+
     def __post_init__(self) -> None:
         if self.u_max < 1:
             raise ValueError(f"u_max must be >= 1, got {self.u_max}")
@@ -98,5 +113,12 @@ class TopologyConfig:
         """
         return (
             f"objective={self.objective}, latency={self.latency_formula}, "
-            f"lookahead={self.lookahead}"
+            f"lookahead={self.lookahead}, grid_gaps={self.grid_gaps}"
         )
+
+    @property
+    def file_tag(self) -> str:
+        """Filename suffix for the active flags. ``grid_gaps`` appears only when
+        not the default, so Phase 1 output names are unchanged."""
+        tag = f"{self.objective}_{self.latency_formula}"
+        return tag if self.grid_gaps == "strict" else f"{tag}_grid-{self.grid_gaps}"

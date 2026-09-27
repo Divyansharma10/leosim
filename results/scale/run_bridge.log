@@ -1,0 +1,24 @@
+[cache] hit C:\Users\divya\leosim\cache\5c0eba4a8fc0aae9
+[access] New York: 3.78 satellites above 25 deg (min 1, max 6); no access at 0 of 360 steps
+[access] San Francisco: 2.51 satellites above 25 deg (min 0, max 4); no access at 31 of 360 steps
+[access] New York: 3.78 satellites above 25 deg (min 1, max 6); no access at 0 of 360 steps
+[access] San Francisco: 2.51 satellites above 25 deg (min 0, max 4); no access at 31 of 360 steps
+[access] New York: 3.78 satellites above 25 deg (min 1, max 6); no access at 0 of 360 steps
+[access] San Francisco: 2.51 satellites above 25 deg (min 0, max 4); no access at 31 of 360 steps
+
+New York -> San Francisco   (objective=max, latency=d_over_c, lookahead=forward, grid_gaps=bridge)
+    algorithm route_metric  reachable_frac  hops_mean  hops_median  hops_min  isl_hops_mean  latency_mean_ms  path_capacity_mean_gbps
+        +Grid          hop           0.914      5.471          5.0         4          3.471           27.440                    0.947
+       Greedy          hop           0.914      5.763          5.0         3          3.763           26.932                    0.974
+ DoTD-forward          hop           0.914      6.377          6.0         3          4.377           25.884                    1.021
+DoTD-backward          hop           0.914      5.936          6.0         4          3.936           27.950                    0.984
+        +Grid      latency           0.914      5.529          5.0         4          3.529           25.952                    0.976
+       Greedy      latency           0.914      6.170          6.0         3          4.170           25.456                    1.018
+ DoTD-forward      latency           0.914      6.641          6.0         3          4.641           23.791                    1.057
+DoTD-backward      latency           0.914      6.356          6.0         4          4.356           25.252                    1.036
+        +Grid inv_capacity           0.914      5.471          5.0         4          3.471           26.077                    0.969
+       Greedy inv_capacity           0.914      5.766          5.0         3          3.766           26.328                    0.983
+ DoTD-forward inv_capacity           0.914      6.377          6.0         3          4.377           24.470                    1.038
+DoTD-backward inv_capacity           0.914      5.945          6.0         4          3.945           26.580                    0.999
+
+[out] results\scale\p34x20_step5\experiment1_NewYork_SanFrancisco_grid-bridge.csv

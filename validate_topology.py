@@ -36,7 +36,7 @@ from topology import (
     assert_valid,
 )
 from topology.metrics import link_churn, metrics_frame, summary_table, timestep_metrics
-from topology.grid import build_plane_structure
+from topology.grid import GAP_FACTORS, build_plane_structure, structural_pairs
 from topology.scoring import RunningNormaliser, link_score
 from validate import Checks, section
 
@@ -881,11 +881,13 @@ def check_grid(
     )
 
     # No scoring at all: changing every scoring knob must leave +Grid unchanged.
+    # Built from tcfg, not a fresh config: grid_gaps is structural, and a fresh
+    # config would silently reset it to the default and compare two grids.
     n = min(vcfg.flag_window_steps, dataset.n_steps)
     alt = PlusGrid(
         dataset,
-        TopologyConfig(w1_capacity=0.9, w2_latency=0.05, w3_churn=0.05, objective="min",
-                       latency_formula="c_over_d", lookahead="backward"),
+        dataclasses.replace(tcfg, w1_capacity=0.9, w2_latency=0.05, w3_churn=0.05, objective="min",
+                            latency_formula="c_over_d", lookahead="backward"),
     ).run(n)
     same = all(np.array_equal(a.adjacency, b.adjacency) for a, b in zip(alt, results["+Grid"][:n]))
     chk.record(
@@ -946,6 +948,101 @@ def check_plane_adjacency(chk: Checks, dataset: LinkDataset) -> None:
         "adjacency is exactly the consecutive pairs inside the limit",
         got == expected,
         f"adjacent pairs by RAAN: {got_r}, expected the three 10 degree steps",
+    )
+
+
+def check_baseline_connected(
+    chk: Checks, dataset: LinkDataset, results: dict, selectors: dict, tcfg: TopologyConfig
+) -> None:
+    """Every selector must produce one connected network at every timestep.
+
+    A disconnected topology fails nothing else. Every path is still over
+    selected links and every hop count is still correct -- the paths just
+    detour around, or cannot cross, a partition. On the full 34-plane shell
+    under grid_gaps="strict" +Grid split in two and its New York -> San
+    Francisco count went to 17 hops, falling to 5 once the halves were joined;
+    no check noticed. The same blind spot would hide stranded demand in Phase 2.
+
+    So this FAILS whenever any selector is disconnected, on purpose. At 601
+    satellites the scored selectors do fail it: they form closed 5-cliques from
+    counter-rotating planes (each other's four best candidates). That is a
+    finding about per-link scored selection, reported as such -- not a reason to
+    relax the check or to change selection. Components are counted by the
+    suite's own BFS, not by the metrics module.
+    """
+    section("Every selector's topology is connected")
+    s = selectors["+Grid"].structure
+    for name, linksets in results.items():
+        comps = [bfs_components(ls.adjacency) for ls in linksets]
+        bad = [t for t, c in enumerate(comps) if c != 1]
+        extra = (f"; grid_gaps={tcfg.grid_gaps}, wraps={s.wraps}, "
+                 f"gap limit {s.diagnostics['adjacent_gap_limit_deg']:.1f} deg") if name == "+Grid" else ""
+        chk.record(
+            f"{name}: one connected component at every timestep",
+            not bad,
+            f"{len(bad)} of {len(comps)} timesteps disconnected (max {max(comps)} components){extra}",
+        )
+
+    # Discrimination. On the 10-plane window the chosen planes avoid both empty
+    # slots of the shell, so the check above passes whether or not the gap
+    # policy does anything. Rebuild the real shell's layout by hand: planes
+    # every 10 deg with the slots at 160 and 0 deg left empty, the two 20 deg
+    # gaps that split the real 34-plane +Grid.
+    raans = tuple(float(r) for r in range(10, 360, 10) if r != 160)
+    ds = synthetic_plane_dataset(raans, sats_per_plane=4)
+    parts = {}
+    for policy in ("strict", "bridge"):
+        st = build_plane_structure(ds, GAP_FACTORS[policy])
+        grid, _ = structural_pairs(st)
+        parts[policy] = (bfs_components(grid), st.wraps)
+    chk.record(
+        "strict gap policy splits a full shell with two empty slots",
+        parts["strict"] == (2, False),
+        f"{len(raans)} planes, empty slots at 160 and 0 deg: "
+        f"strict gives {parts['strict'][0]} components, wraps={parts['strict'][1]}",
+    )
+    chk.record(
+        "bridge gap policy joins the same shell into one wrapped grid",
+        parts["bridge"] == (1, True),
+        f"bridge gives {parts['bridge'][0]} components, wraps={parts['bridge'][1]}",
+    )
+
+    # Bridging is for one empty slot, not any gap: it must still refuse the
+    # 90 deg step that check_plane_adjacency uses.
+    st = build_plane_structure(
+        synthetic_plane_dataset((0.0, 10.0, 20.0, 30.0, 120.0), sats_per_plane=4),
+        GAP_FACTORS["bridge"],
+    )
+    by_raan = sorted(st.plane_ids, key=lambda p: st.plane_raan_deg[p])
+    chk.record(
+        "bridge gap policy still rejects a 90 degree gap",
+        by_raan[-1] not in st.adjacent[by_raan[-2]] and st.wraps is False,
+        f"gap limit {st.diagnostics['adjacent_gap_limit_deg']:.1f} deg; "
+        f"plane at 120 deg adjacency {[round(st.plane_raan_deg[q]) for q in st.adjacent[by_raan[-1]]]}",
+    )
+    # PlusGrid must take its limit from the flag. Everything above calls
+    # build_plane_structure directly, and the suite's own +Grid runs one policy
+    # only, so a PlusGrid that ignored grid_gaps would pass all of it.
+    other = "bridge" if tcfg.grid_gaps == "strict" else "strict"
+    alt = PlusGrid(dataset, dataclasses.replace(tcfg, grid_gaps=other)).structure
+    ratio = alt.diagnostics["adjacent_gap_limit_deg"] / s.diagnostics["adjacent_gap_limit_deg"]
+    want = GAP_FACTORS[other] / GAP_FACTORS[tcfg.grid_gaps]
+    chk.record(
+        "PlusGrid takes its adjacency limit from grid_gaps",
+        abs(ratio - want) < 1e-9,
+        f"limit {s.diagnostics['adjacent_gap_limit_deg']:.2f} deg ({tcfg.grid_gaps}) vs "
+        f"{alt.diagnostics['adjacent_gap_limit_deg']:.2f} deg ({other}); ratio {ratio:.3f}, want {want:.3f}",
+    )
+    chk.record(
+        "variant label records the grid gap policy",
+        "grid_gaps=bridge" in TopologyConfig(grid_gaps="bridge").variant_label
+        and "grid_gaps=strict" in TopologyConfig(grid_gaps="strict").variant_label,
+        f"bridge label: {TopologyConfig(grid_gaps='bridge').variant_label!r}",
+    )
+    chk.record(
+        "gap factors are the pinned values",
+        GAP_FACTORS == {"strict": 1.5, "bridge": 2.5},
+        f"GAP_FACTORS = {GAP_FACTORS}",
     )
 
 
@@ -1023,11 +1120,16 @@ def check_metrics(chk: Checks, dataset: LinkDataset, results: dict, df, tcfg: To
         f"two disjoint links over {n} satellites: connected={row['connected']}, "
         f"n_components={row['n_components']} (independent BFS: {bfs_components(split)})",
     )
+    # The real runs must supply the True side: the check above covers a flag
+    # stuck at True, and only recomputation against connected real timesteps
+    # covers one stuck at False. This used to demand that EVERY real timestep be
+    # connected, which was a fact about the 10-plane window rather than the
+    # property being protected; at 34 planes it failed with the flag correct.
     chk.record(
-        "connected-flag check discriminates: the real runs are all connected",
-        bool(df["connected"].all()),
-        f"{int(df['connected'].sum())} of {len(df)} algorithm-timesteps connected, "
-        "so recomputation alone cannot see a flag stuck at True",
+        "connected-flag check discriminates: the flag is exercised with both values",
+        row["connected"] is False and bool(df["connected"].any()),
+        f"{int(df['connected'].sum())} of {len(df)} real algorithm-timesteps connected; "
+        f"synthetic split connected={row['connected']}",
     )
 
     variants = df["variant"].unique().tolist()
@@ -1043,16 +1145,19 @@ def main() -> int:
     p.add_argument("--steps", type=int, default=None, help="default: whole dataset")
     p.add_argument("--planes", type=int, default=10)
     p.add_argument("--per-plane", type=int, default=20)
+    p.add_argument("--step", type=float, default=SimConfig.step_s, help="stage-1 timestep, seconds")
+    p.add_argument("--duration-min", type=float, default=SimConfig.duration_s / 60.0, help="stage-1 window, minutes")
+    p.add_argument("--grid-gaps", choices=["strict", "bridge"], default="strict")
     args = p.parse_args()
 
-    tcfg = TopologyConfig()
+    tcfg = TopologyConfig(grid_gaps=args.grid_gaps)
     vcfg = TopologyValidationConfig()
     print("=" * 72)
     print("  LEO CONSTELLATION SIMULATOR -- STAGE 2 VALIDATION")
     print(f"  variant: {tcfg.variant_label}")
     print("=" * 72)
 
-    cfg = SimConfig(selection=SelectionConfig(n_planes=args.planes, sats_per_plane=args.per_plane)).resolve(ROOT)
+    cfg = SimConfig(step_s=args.step, duration_s=args.duration_min * 60.0, selection=SelectionConfig(n_sats=args.planes * args.per_plane, n_planes=args.planes, sats_per_plane=args.per_plane)).resolve(ROOT)
     dataset = run(cfg, verbose=True)
     n_steps = dataset.n_steps if args.steps is None else min(args.steps, dataset.n_steps)
 
@@ -1079,6 +1184,7 @@ def main() -> int:
     check_ambiguity_flags(chk, dataset, tcfg, vcfg)
     check_grid(chk, dataset, results, selectors, summary, tcfg, vcfg)
     check_plane_adjacency(chk, dataset)
+    check_baseline_connected(chk, dataset, results, selectors, tcfg)
     check_metrics(chk, dataset, results, df, tcfg, vcfg)
     return chk.summarise()
 
