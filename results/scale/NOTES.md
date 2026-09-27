@@ -96,3 +96,44 @@ Phase 2, since demand landing on an island has no path to a gateway.
 The old check asserted a fact about the 10-plane window ("every real run is
 connected"). It now asserts what it protects: the connected flag is exercised with
 both values.
+
+## Window variance (4 x 6-minute windows at 1 s, bridge)
+
+`run_windows.py`, output in `windows/`. Windows start 0, 24, 48 and 72 min after the
+601-satellite selection's default start (2026-08-20T20:29:07Z), sampling about one
+orbit. Every headline above came from ONE 30-minute slice; seeds vary demand, not
+geometry, so the seed rule cannot see this.
+
+Mean hops, New York -> San Francisco, hop metric:
+
+| window | +Grid | Greedy | DoTD-forward | DoTD-backward | DoTD-f minus Greedy |
+|---|---|---|---|---|---|
+| +0 | 6.150 | 6.061 | 7.358 | 6.106 | +1.297 |
+| +24 | 4.601 | 5.471 | 6.491 | 5.430 | +1.021 |
+| +48 | 6.089 | 6.164 | 6.083 | 5.617 | -0.081 |
+| +72 | 6.320 | 5.322 | 6.385 | 5.988 | +1.062 |
+
+Fraction of timesteps connected:
+
+| window | +Grid | Greedy | DoTD-forward | DoTD-backward |
+|---|---|---|---|---|
+| +0 | 1.000 | 0.333 | 0.792 | 0.172 |
+| +24 | 1.000 | 0.744 | 1.000 | 0.681 |
+| +48 | 1.000 | 0.406 | 0.839 | 0.322 |
+| +72 | 1.000 | 0.781 | 0.783 | 0.764 |
+
+What survives, and what does not:
+
+- **DoTD-forward takes more hops than Greedy in 3 of 4 windows, by ~1 hop; in the
+  fourth they tie** (-0.08 on the hop metric; on the latency route metric DoTD-forward
+  is 0.3 hops better there). Report it as "in 3 of 4 windows", not as a property.
+- **"+Grid (bridged) takes the fewest hops" does not survive.** It is best in 1 window
+  of 4 (+24 min, 4.60); elsewhere it ties or trails. The 30-minute figure (5.47) was
+  one slice.
+- **Island frequency varies 2-4x between windows** (Greedy connected 33-78%,
+  DoTD-backward 17-76%). A single-window disconnection rate is not a property of a
+  selector.
+- **Robust across all four: DoTD-forward is the most-connected scored selector**
+  (78-100%), and bridged +Grid is always connected.
+- Per-selector mean hops move by up to ~1.7 hops between windows -- the same order as
+  the between-selector gaps. Any hop comparison needs its window spread beside it.

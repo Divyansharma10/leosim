@@ -76,9 +76,29 @@ class TrafficConfig:
     # budget as a user terminal -- the Phase 2 baseline as first built.
     # Real gateway links run in other bands with far wider bandwidth, so that
     # default understates feeder capacity; setting these tests how much the
-    # "gateways are the bottleneck" result depends on it. ASSUMED: Krishnan et
-    # al. model this link separately (their B vs B^ISL) but give no values, and
-    # neither does the base paper.
+    # "gateways are the bottleneck" result depends on it. Krishnan et al. model
+    # this link separately (their B vs B^ISL) but give no values, and neither
+    # does the base paper.
+    #
+    # Sourced value for feeder_bandwidth_hz: 2.1e9. Starlink gateway uplinks
+    # (gateway -> satellite, the direction "to_user" traffic loads) use Ka-band
+    # 27.5-29.1 + 29.5-30.0 GHz = 2.1 GHz, per the FCC gateway authorisations
+    # (Banning CA; Lynnwood WA STA, 2025) as quoted in search results -- the FCC
+    # documents themselves could not be opened from here. Pachler et al. 2021
+    # (MIT, "An Updated Comparison of Four LEO Constellation Systems", from the
+    # FCC filings as of Jan 2021) corroborates the 27.5-30.0 GHz envelope and
+    # says each satellite "can use the full frequency range in both
+    # polarizations" to a gateway, up to four satellites per gateway at once.
+    # Their "2.1 GHz uplink / 1.3 GHz downlink" sentence describes OneWeb, NOT
+    # Starlink; do not cite it for Starlink.
+    #
+    # Only bandwidth is overridden. Carrier stays 12.2 GHz and ground gain
+    # 33.2 dBi, so a 2.1 GHz feeder is a hybrid: a real Ka link has ~7 dB more
+    # path loss (28 vs 12.2 GHz) but a much larger antenna gain (1.5 m dish),
+    # which on balance raises SNR. The bandwidth-only case therefore likely
+    # UNDERSTATES a real feeder, and the 4-satellite-per-gateway limit is not
+    # applied (unlimited here). Transmit power and noise temperature: still the
+    # stage-1 ASSUMED values; no source found.
     feeder_bandwidth_hz: float | None = None
     feeder_tx_power_dbw: float | None = None
     feeder_noise_temperature_k: float | None = None

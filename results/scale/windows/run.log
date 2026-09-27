@@ -1,0 +1,77 @@
+[cache] hit C:\Users\divya\leosim\cache\2f2f327975dbf96d
+
+[window +0 min, start 2026-08-20T20:29:07Z]
+    algorithm  connected_frac  components_max  hops_mean  hops_median  latency_mean_ms
+        +Grid           1.000               1      6.150          6.0           31.307
+       Greedy           0.333               3      6.061          6.0           27.692
+ DoTD-forward           0.792               4      7.358          6.0           28.689
+DoTD-backward           0.172               4      6.106          5.0           26.586
+[cache] miss 1b8c40046211400d -- computing
+[select] 601 sats from 10744 catalog, shell i=70.0 deg (pool 702 -> 700 altitude-verified, 34 planes)
+[select] mean altitude 514.1 .. 572.5 km (mean 569.8)
+[propagate] 360 steps x 601 sats in 2.9s
+[geometry] link matrices in 27.0s
+[cache] wrote C:\Users\divya\leosim\cache\1b8c40046211400d (1694 MB)
+[done] total 33.4s
+
+[window +24 min, start 2026-08-20T20:53:07Z]
+    algorithm  connected_frac  components_max  hops_mean  hops_median  latency_mean_ms
+        +Grid           1.000               1      4.601          4.0           20.904
+       Greedy           0.744               2      5.471          6.0           26.141
+ DoTD-forward           1.000               1      6.491          6.0           25.572
+DoTD-backward           0.681               3      5.430          5.0           24.795
+[cache] miss 7f2a062501db15cc -- computing
+[select] 601 sats from 10744 catalog, shell i=70.0 deg (pool 702 -> 700 altitude-verified, 34 planes)
+[select] mean altitude 514.1 .. 572.5 km (mean 569.8)
+[propagate] 360 steps x 601 sats in 0.4s
+[geometry] link matrices in 21.1s
+[cache] wrote C:\Users\divya\leosim\cache\7f2a062501db15cc (1694 MB)
+[done] total 27.1s
+
+[window +48 min, start 2026-08-20T21:17:07Z]
+    algorithm  connected_frac  components_max  hops_mean  hops_median  latency_mean_ms
+        +Grid           1.000               1      6.089          6.0           32.142
+       Greedy           0.406               3      6.164          6.0           28.359
+ DoTD-forward           0.839               3      6.083          6.0           22.055
+DoTD-backward           0.322               4      5.617          5.0           26.040
+[cache] miss 61a0f29a9f4118f2 -- computing
+[select] 601 sats from 10744 catalog, shell i=70.0 deg (pool 702 -> 700 altitude-verified, 34 planes)
+[select] mean altitude 514.1 .. 572.5 km (mean 569.8)
+[propagate] 360 steps x 601 sats in 1.5s
+[geometry] link matrices in 44.4s
+[cache] wrote C:\Users\divya\leosim\cache\61a0f29a9f4118f2 (1694 MB)
+[done] total 49.6s
+
+[window +72 min, start 2026-08-20T21:41:07Z]
+    algorithm  connected_frac  components_max  hops_mean  hops_median  latency_mean_ms
+        +Grid           1.000               1      6.320          6.0           31.036
+       Greedy           0.781               3      5.322          5.0           25.988
+ DoTD-forward           0.783               2      6.385          6.0           23.126
+DoTD-backward           0.764               2      5.988          6.0           28.142
+
+## Across windows, route metric = hop
+algorithm   +Grid  DoTD-backward  DoTD-forward  Greedy
+offset_min                                            
+0.0         6.150          6.106         7.358   6.061
+24.0        4.601          5.430         6.491   5.471
+48.0        6.089          5.617         6.083   6.164
+72.0        6.320          5.988         6.385   5.322
+
+connected fraction:
+algorithm   +Grid  DoTD-backward  DoTD-forward  Greedy
+offset_min                                            
+0.0           1.0          0.172         0.792   0.333
+24.0          1.0          0.681         1.000   0.744
+48.0          1.0          0.322         0.839   0.406
+72.0          1.0          0.764         0.783   0.781
+
+DoTD-forward minus Greedy mean hops per window: {0.0: 1.297, 24.0: 1.021, 48.0: -0.081, 72.0: 1.062}
+  sign consistent: False
+
+## Across windows, route metric = latency
+algorithm   +Grid  DoTD-backward  DoTD-forward  Greedy
+offset_min                                            
+0.0         6.150          6.172         7.928   6.336
+24.0        4.601          5.595         6.643   5.646
+48.0        6.089          6.242         6.164   6.469
+72.0        6.320          6.266         6.527   5.500
