@@ -48,24 +48,32 @@ variant label and output filenames carry the policy.
 
 ## Validation at 34 planes (5 s step)
 
+Current suite (96 stage-2 checks), logs in `validation/`, re-run 2026-09-26:
+
 | suite | strict | bridge | 10-plane control, 5 s |
 |---|---|---|---|
-| stage 2 (`validate_topology`) | 92/93 | see below | 86/86 (before new checks) |
+| stage 2 (`validate_topology`) | 92/96 | 93/96 | 86/86 (older 86-check suite) |
 | stage 3 (`validate_routing`) | 36/36 | 35/36 | 36/36 |
 
-- **strict, stage 2**: the one failure is the new check "+Grid baseline is one
-  connected component at every timestep" -- 360 of 360 timesteps disconnected. That
-  check exists to fail on exactly this configuration.
-- **bridge, stage 3**: the one failure is "+Grid needs more hops than every scored
-  algorithm", which asserts the paper's result. It fails because the result is
-  false here, not because anything is broken. Left failing on purpose.
-- **bridge, stage 2**: first run failed "+Grid output invariant to every scoring
-  parameter" because the check built its comparison +Grid from a fresh config,
-  resetting grid_gaps to strict. Check fixed to derive from the active config;
-  re-run pending at time of writing.
+Every failure is intended; none is a bug.
 
-The DoTD-vs-Greedy hop inversion is therefore validated: every check that bears on
-selection, routing and the graph passes at 34 planes under both policies.
+- **stage 2, both policies**: "Greedy / DoTD-forward / DoTD-backward: one connected
+  component at every timestep" -- 66, 46 and 99 of 360 timesteps disconnected. The
+  scored selectors form closed 5-cliques at global scale; see the next section.
+- **strict, stage 2**: "+Grid: one connected component at every timestep" -- 360 of
+  360 timesteps disconnected. That check exists to fail on exactly this
+  configuration.
+- **bridge, stage 3**: "+Grid needs more hops than every scored algorithm", which
+  asserts the paper's result. It fails because the result is false here, not
+  because anything is broken. Left failing on purpose.
+- An earlier bridge stage-2 run also failed "+Grid output invariant to every scoring
+  parameter": the check built its comparison +Grid from a fresh config, resetting
+  grid_gaps to strict. Fixed to derive from the active config; it passes in the
+  re-run above.
+
+The DoTD-vs-Greedy hop inversion is therefore validated: apart from the connectivity
+findings, every check that bears on selection, routing and the graph passes at 34
+planes under both policies.
 
 ## Scored topologies are not connected at global scale
 

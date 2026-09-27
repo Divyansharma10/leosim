@@ -47,6 +47,13 @@ for Opportunistic Routing in Software-Defined LEO-Terrestrial Systems*, arXiv
 2601.13662v1 (read 2026-09-26): Los Angeles, London, Dubai, Tokyo, Singapore, Sao
 Paulo, Johannesburg, Sydney. The paper gives names on a map only; coordinates are
 the GeoNames `cities15000` entry for each city (same source as `cities.csv`).
+Columns: `geonameid, name, country, lat, lon`. SHA-256
+`21cdea42bfc22055996f7009b20346b3b94c90d891aad0d3638194be486c7d6e`.
+
+Used only under `TrafficConfig.gateway_sites="krishnan8"` (`run_traffic.py
+--gateway-sites krishnan8`); the default `populous20` derives gateways from
+`cities.csv` and never reads this file. `validate_traffic.py` pins the eight names
+in order.
 
 That paper gives NO numeric values for gateway-link bandwidth, transmit power, noise
 temperature, path-loss exponent or elevation mask -- they appear only as symbols

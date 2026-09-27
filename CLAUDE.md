@@ -23,15 +23,15 @@ python validate.py                 # stage 1: 29 physics checks
 python plot_visibility.py          # -> visible_pairs.png
 
 python run_topology.py             # stage 2: all selectors, metrics CSV + plot
-python validate_topology.py        # stage 2: 93 checks (--steps 300 for a fast pass)
+python validate_topology.py        # stage 2: 96 checks (--steps 300 for a fast pass)
 
 python run_experiment1.py          # stage 3: the paper's city-to-city hop counts
 python validate_routing.py         # stage 3: 36 checks (--steps 300 for a fast pass)
 
 python run_traffic.py --loads 0.5 1 2 5   # stage 4: every selector under offered load
-python validate_traffic.py         # stage 4: 27 checks (--steps 300 for a fast pass)
+python validate_traffic.py         # stage 4: 31 checks (--steps 300 for a fast pass)
 
-python mutants.py                  # meta-test: 69-mutation sweep over stages 2-4
+python mutants.py                  # meta-test: 72-mutation sweep over stages 2-4
 python mutants.py T01 T02          # just the named mutants
 ```
 
@@ -178,16 +178,24 @@ one-for-one, which is what catches that.
 Stage 1 is validated (29/29), stage 2 (93/93), stage 3 (36/36) and stage 4 (27/27),
 with 67/69 mutants killed and 0 unexpected survivors.
 
-**At 34 planes (601 sats) two checks fail on purpose.** Under `grid_gaps=strict`,
-"+Grid baseline is one connected component" fails: the shell's two empty plane slots
-split +Grid in two, which inflated its hop count to 17. Under `bridge`, stage 3's
-"+Grid needs more hops than every scored algorithm" fails because the paper's
-ordering is false there: +Grid 5.47 mean hops, Greedy 5.76, DoTD-forward 6.38. Both
-are findings; do not weaken either check. See `results/scale/NOTES.md`.
+**At 34 planes (601 sats) checks fail on purpose**, all of them findings; do not
+weaken any. See `results/scale/NOTES.md`.
 
-At global scale the scored selectors also form closed 5-cliques from counter-rotating
-planes (Greedy connected at 82% of timesteps). A property of per-link selection, not
-a bug.
+| suite | `strict` | `bridge` |
+|---|---|---|
+| stage 2 | 92/96 | 93/96 |
+| stage 3 | 36/36 | 35/36 |
+
+- Stage 2, both policies: "Greedy / DoTD-forward / DoTD-backward: one connected
+  component at every timestep" (3 checks). At global scale the scored selectors form
+  closed 5-cliques from counter-rotating planes (disconnected at 66, 46 and 99 of 360
+  timesteps). A property of per-link selection, not a bug.
+- Stage 2, `strict` only: "+Grid: one connected component at every timestep". The
+  shell's two empty plane slots split +Grid in two at every timestep, which inflated
+  its hop count to 17.
+- Stage 3, `bridge` only: "+Grid needs more hops than every scored algorithm", because
+  the paper's ordering is false there: +Grid 5.47 mean hops, Greedy 5.76,
+  DoTD-forward 6.38.
 
 Experiment 1 reproduces the paper's headline on medians — New York -> San Francisco,
 DoTD 5 hops and Greedy 6 — and holds that ordering under all three OSPF cost metrics.
@@ -211,8 +219,12 @@ Two other open findings, both recorded rather than resolved:
 
 - `demand.py` — 200 GeoNames cities (`data/cities.csv`, raw population, no market
   filtering; the China skew is a model property), diurnal raised cosine in local solar
-  time, Poisson flow arrivals. Gateways: largest city of each of the 20 most populous
-  countries (ASSUMED).
+  time, Poisson flow arrivals. Gateways are a flag, `gateway_sites` (`--gateway-sites`):
+  `populous20` (default, ASSUMED) is the largest city of each of the 20 most populous
+  countries, which puts gateways where the demand is; `krishnan8` is the eight sites
+  named in Krishnan et al. Fig. 1, read from `data/gateways_krishnan.csv` (names only
+  from the paper, coordinates from GeoNames; see `data/README.md`). Neither is a real
+  operator's gateway map. The choice is in `variant_label` and the output filename.
 - `network.py` — shortest-path forest from all gateways at once over the SELECTED links;
   cities attach by their cheapest access link and are never graph nodes (a city seeing
   two satellites would otherwise be a free relay). Fluid queue per directed link with a

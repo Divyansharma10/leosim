@@ -1,0 +1,38 @@
+[cache] hit C:\Users\divya\leosim\cache\54a1268e38b278ba
+[access] 200 cities, 20 gateways in 8s
+[access] 76% of cities see a satellite at some timestep
+  load 0.5 Gbps  +Grid          delivered 1.000  delay 8.1 ms  churn-lost 0.0000  (18s)
+  load 0.5 Gbps  Greedy         delivered 1.000  delay 7.8 ms  churn-lost 0.0000  (18s)
+  load 0.5 Gbps  DoTD-forward   delivered 1.000  delay 7.6 ms  churn-lost 0.0000  (18s)
+  load 0.5 Gbps  DoTD-backward  delivered 1.000  delay 7.7 ms  churn-lost 0.0000  (18s)
+  load 1 Gbps  +Grid          delivered 1.000  delay 8.1 ms  churn-lost 0.0000  (18s)
+  load 1 Gbps  Greedy         delivered 1.000  delay 7.8 ms  churn-lost 0.0000  (18s)
+  load 1 Gbps  DoTD-forward   delivered 1.000  delay 7.6 ms  churn-lost 0.0000  (18s)
+  load 1 Gbps  DoTD-backward  delivered 1.000  delay 7.7 ms  churn-lost 0.0000  (18s)
+  load 2 Gbps  +Grid          delivered 1.000  delay 8.1 ms  churn-lost 0.0000  (18s)
+  load 2 Gbps  Greedy         delivered 1.000  delay 7.8 ms  churn-lost 0.0000  (18s)
+  load 2 Gbps  DoTD-forward   delivered 1.000  delay 7.6 ms  churn-lost 0.0000  (18s)
+  load 2 Gbps  DoTD-backward  delivered 1.000  delay 7.8 ms  churn-lost 0.0000  (18s)
+  load 5 Gbps  +Grid          delivered 0.883  delay 28.3 ms  churn-lost 0.0001  (18s)
+  load 5 Gbps  Greedy         delivered 0.903  delay 26.3 ms  churn-lost 0.0001  (18s)
+  load 5 Gbps  DoTD-forward   delivered 0.879  delay 28.7 ms  churn-lost 0.0001  (18s)
+  load 5 Gbps  DoTD-backward  delivered 0.903  delay 26.3 ms  churn-lost 0.0001  (18s)
+    algorithm  peak_total_gbps  offered_gbps  no_access_frac  no_path_frac  delivered_frac_of_routed  lost_frac_of_routed  link_drop_bits_sum_over_routed  churn_lost_frac_of_routed  delay_mean_ms  delay_p95_ms_median  util_max  links_saturated_mean  feeder_util_max  n_sats  step_s
+        +Grid              0.5        0.4202          0.2456           0.0                    1.0000               0.0000                          0.0000                     0.0000         8.1116              15.2813    0.3073                0.0000           0.3073     187     1.0
+       Greedy              0.5        0.4202          0.2456           0.0                    1.0000               0.0000                          0.0000                     0.0000         7.7993              13.3829    0.3180                0.0000           0.3180     187     1.0
+ DoTD-forward              0.5        0.4202          0.2456           0.0                    1.0000               0.0000                          0.0000                     0.0000         7.5970              12.9725    0.3180                0.0000           0.3180     187     1.0
+DoTD-backward              0.5        0.4202          0.2456           0.0                    1.0000               0.0000                          0.0000                     0.0000         7.7394              13.3004    0.3180                0.0000           0.3180     187     1.0
+        +Grid              1.0        0.8430          0.2440           0.0                    1.0000               0.0000                          0.0000                     0.0000         8.1078              15.2434    0.5166                0.0000           0.5166     187     1.0
+       Greedy              1.0        0.8430          0.2440           0.0                    1.0000               0.0000                          0.0000                     0.0000         7.7971              13.3764    0.5470                0.0000           0.5470     187     1.0
+ DoTD-forward              1.0        0.8430          0.2440           0.0                    1.0000               0.0000                          0.0000                     0.0000         7.5975              12.8935    0.5470                0.0000           0.5470     187     1.0
+DoTD-backward              1.0        0.8430          0.2440           0.0                    1.0000               0.0000                          0.0000                     0.0000         7.7360              13.2439    0.5470                0.0000           0.5470     187     1.0
+        +Grid              2.0        1.6826          0.2435           0.0                    1.0000               0.0000                          0.0000                     0.0000         8.1386              15.2717    0.9619                0.0000           0.9619     187     1.0
+       Greedy              2.0        1.6826          0.2435           0.0                    1.0000               0.0000                          0.0000                     0.0000         7.8259              13.3718    1.0010                0.0006           1.0010     187     1.0
+ DoTD-forward              2.0        1.6826          0.2435           0.0                    1.0000               0.0000                          0.0000                     0.0000         7.6183              12.9332    1.0010                0.0006           1.0010     187     1.0
+DoTD-backward              2.0        1.6826          0.2435           0.0                    1.0000               0.0000                          0.0000                     0.0000         7.7623              13.2680    1.0010                0.0006           1.0010     187     1.0
+        +Grid              5.0        4.2128          0.2441           0.0                    0.8831               0.1169                          0.1172                     0.0001        28.2593              60.0033    2.0928                0.9994           2.0928     187     1.0
+       Greedy              5.0        4.2128          0.2441           0.0                    0.9027               0.0973                          0.0987                     0.0001        26.3384              57.0540    2.2781                0.9361           2.2781     187     1.0
+ DoTD-forward              5.0        4.2128          0.2441           0.0                    0.8787               0.1213                          0.1226                     0.0001        28.6538              57.6487    2.2781                1.0256           2.2781     187     1.0
+DoTD-backward              5.0        4.2128          0.2441           0.0                    0.9027               0.0973                          0.0987                     0.0001        26.2800              57.0540    2.2781                0.9361           2.2781     187     1.0
+
+[out] results\traffic\traffic_187sats_max_d_over_c_hop.csv
