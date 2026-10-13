@@ -1,0 +1,32 @@
+[cache] hit C:\Users\divya\leosim\cache\a527d90194e539f7
+[variant] objective=max, latency=d_over_c, lookahead=forward, grid_gaps=strict | metric=hop, mask=25deg, access=all | load=2Gbps, direction=to_user, gateways=populous20, feeder=stage1, buffer=50ms
+[access] 200 cities, 20 gateways in 1s; gateway feeder capacity per gateway: mean 0.89 Gbps (range 0.00-1.66), total 17.7 Gbps
+[ground] none
+[topology] 4 selectors x 360 steps in 13s
+  load     1 seed 7  +Grid                  delivered 1.0000  delay    7.9 ms  p95   14.9 ms  (13s)
+  load     1 seed 7  Greedy                 delivered 1.0000  delay    7.8 ms  p95   13.2 ms  (13s)
+  load     1 seed 7  DoTD-forward           delivered 1.0000  delay    7.6 ms  p95   12.8 ms  (13s)
+  load     1 seed 7  DoTD-backward          delivered 1.0000  delay    7.7 ms  p95   13.1 ms  (13s)
+  load     1 seed 8  +Grid                  delivered 1.0000  delay    7.9 ms  p95   15.0 ms  (13s)
+  load     1 seed 8  Greedy                 delivered 1.0000  delay    7.8 ms  p95   13.3 ms  (13s)
+  load     1 seed 8  DoTD-forward           delivered 1.0000  delay    7.6 ms  p95   12.8 ms  (13s)
+  load     1 seed 8  DoTD-backward          delivered 1.0000  delay    7.7 ms  p95   13.1 ms  (13s)
+  load     1 seed 9  +Grid                  delivered 1.0000  delay    7.9 ms  p95   15.0 ms  (13s)
+  load     1 seed 9  Greedy                 delivered 1.0000  delay    7.8 ms  p95   13.3 ms  (12s)
+  load     1 seed 9  DoTD-forward           delivered 1.0000  delay    7.6 ms  p95   12.9 ms  (12s)
+  load     1 seed 9  DoTD-backward          delivered 1.0000  delay    7.8 ms  p95   13.3 ms  (12s)
+  load     2 seed 7  +Grid                  delivered 1.0000  delay    7.9 ms  p95   15.0 ms  (12s)
+  load     2 seed 7  Greedy                 delivered 1.0000  delay    7.8 ms  p95   13.3 ms  (12s)
+  load     2 seed 7  DoTD-forward           delivered 1.0000  delay    7.6 ms  p95   12.9 ms  (12s)
+  load     2 seed 7  DoTD-backward          delivered 1.0000  delay    7.7 ms  p95   13.2 ms  (12s)
+  load     2 seed 8  +Grid                  delivered 1.0000  delay    7.9 ms  p95   15.0 ms  (12s)
+  load     2 seed 8  Greedy                 delivered 1.0000  delay    7.8 ms  p95   13.4 ms  (12s)
+  load     2 seed 8  DoTD-forward           delivered 1.0000  delay    7.6 ms  p95   12.8 ms  (12s)
+  load     2 seed 8  DoTD-backward          delivered 1.0000  delay    7.7 ms  p95   13.2 ms  (12s)
+  load     2 seed 9  +Grid                  delivered 1.0000  delay    7.9 ms  p95   14.9 ms  (12s)
+  load     2 seed 9  Greedy                 delivered 1.0000  delay    7.8 ms  p95   13.3 ms  (13s)
+  load     2 seed 9  DoTD-forward           delivered 1.0000  delay    7.6 ms  p95   12.8 ms  (12s)
+  load     2 seed 9  DoTD-backward          delivered 1.0000  delay    7.7 ms  p95   13.1 ms  (12s)
+  load   2.5 seed 7  +Grid                  delivered 0.9999  delay    8.0 ms  p95   14.9 ms  (12s)
+  load   2.5 seed 7  Greedy                 delivered 0.9995  delay    8.8 ms  p95   13.4 ms  (12s)
+  load   2.5 seed 7  DoTD-forward           delivered 0.9994  delay    8.8 ms  p95   13.0 ms  (12s)

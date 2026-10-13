@@ -26,20 +26,22 @@ python run_topology.py             # stage 2: all selectors, metrics CSV + plot
 python validate_topology.py        # stage 2: 96 checks (--steps 300 for a fast pass)
 
 python run_experiment1.py          # stage 3: the paper's city-to-city hop counts
-python validate_routing.py         # stage 3: 36 checks (--steps 300 for a fast pass)
+python validate_routing.py         # stage 3: 44 checks (--steps 300 for a fast pass)
 
 python run_traffic.py --loads 0.5 1 2 5   # stage 4: every selector under offered load
-python validate_traffic.py         # stage 4: 31 checks (--steps 300 for a fast pass)
+python validate_traffic.py         # stage 4: 34 checks (--steps 300 for a fast pass)
 
-python mutants.py                  # meta-test: 72-mutation sweep over stages 2-4
+python validate_extension.py       # Phase 2 extension: 63 checks (59 at --steps 300)
+
+python mutants.py                  # meta-test: 101-mutation sweep, stages 2-4 + extension
 python mutants.py T01 T02          # just the named mutants
 ```
 
 There is no pytest and no test framework. `validate.py`, `validate_topology.py`,
-`validate_routing.py` and `validate_traffic.py` **are** the tests; each check prints PASS/FAIL with the measured
+`validate_routing.py`, `validate_traffic.py` and `validate_extension.py` **are** the tests; each check prints PASS/FAIL with the measured
 value and the bound. None has a flag to run a single check — to isolate one, call its
-`check_*` function from a scratch script. `--steps 300` is the fast path for the
-stage-2/3/4 suites and is what `mutants.py` drives.
+`check_*` function from a scratch script. `--steps 300` is the fast path for the stage-2/3/4 and
+extension suites and is what `mutants.py` drives.
 
 Each mutant names the suite meant to catch it (`suite=ROUTING_SUITE` for the `R*` ones),
 and every named suite's baseline must be green before any mutant runs, so a stage-3
@@ -47,7 +49,8 @@ mutant cannot be credited to a stage-2 check.
 
 `mutants.py` **rewrites source files in place**. Never run anything else against the
 repo while it is running, and never leave it interrupted — check `git`-less working
-files are restored before doing anything else. It takes ~10 minutes.
+files are restored before doing anything else. It takes about an hour; the 20 `X*` mutants
+each re-run the ~2.5-minute extension suite.
 
 Useful flags:
 
@@ -59,6 +62,8 @@ python run_sim.py --inclination 53.2              # Gen1 shell instead of the 70
 
 python run_experiment1.py --all-metrics           # all three OSPF cost metrics
 python run_experiment1.py --pair Darwin Singapore # another city pair
+
+python run_traffic.py --w-egress 0.2 --w-congestion 0.2   # extension on: UNTUNED, see Phase 2
 
 # full 70-deg shell: 34 real planes, 601 sats. 5 s step because 1 s needs ~7.8 GB
 python run_experiment1.py --planes 34 --step 5 --grid-gaps bridge --all-metrics
@@ -124,6 +129,15 @@ the previous `cache/<hash>/` directory.
   rather than being free.
 - Unreachable timesteps return the `NO_PATH` sentinel and are excluded from means; a
   zero there would silently pull every average down.
+- **Stretch factor** (`path_km / geodesic_floor_km`) is reported beside hops and
+  latency. The floor is the arc on a sphere of radius min(|a|, |b|), the stations'
+  own geocentric radii, at the angle between their geocentric vectors. That makes
+  stretch >= 1 a theorem: radial projection never lengthens a path lying outside the
+  sphere, and every routed path does (ISLs clear Earth + 50 km; access links leave
+  above the mask). The triangle inequality alone gives only the chord, and
+  `great_circle_km` (6371 km, geodetic latitude) is not a bound: New York sits at
+  6369 km. `path_stretch` raises below 1. Co-located endpoints (a city on a gateway's
+  coordinates) have no arc, so their stretch is NaN, not an error.
 
 The stage-3 hazard is not wrong physics, it is a path over the wrong graph. Routing over
 visibility instead of the selection gives plausible hop counts that are identical for
@@ -175,8 +189,8 @@ thins every one of them, which leaves `+Grid`'s in-plane neighbours a third of a
 apart and beyond the range cap. The suite now asserts stage 1 and stage 2 resolve planes
 one-for-one, which is what catches that.
 
-Stage 1 is validated (29/29), stage 2 (93/93), stage 3 (36/36) and stage 4 (27/27),
-with 67/69 mutants killed and 0 unexpected survivors.
+Stage 1 is validated (29/29), stage 2 (96/96), stage 3 (44/44), stage 4 (34/34) and
+the Phase 2 extension (63/63), with 99/101 mutants killed, the 2 documented equivalents surviving and 0 unexpected.
 
 **At 34 planes (601 sats) checks fail on purpose**, all of them findings; do not
 weaken any. See `results/scale/NOTES.md`.
@@ -215,7 +229,7 @@ Two other open findings, both recorded rather than resolved:
 - The paper's +28% average capacity is measured along routing paths, not over the whole
   topology, so it is only now comparable at all. Stage-2 totals are not the same metric.
 
-## Stage 4 (`traffic/`) — Phase 2, built; extension term not yet
+## Stage 4 (`traffic/`) and the Phase 2 extension — built, untuned
 
 - `demand.py` — 200 GeoNames cities (`data/cities.csv`, raw population, no market
   filtering; the China skew is a model property), diurnal raised cosine in local solar
@@ -230,11 +244,60 @@ Two other open findings, both recorded rather than resolved:
   two satellites would otherwise be a free relay). Fluid queue per directed link with a
   50 ms buffer; a removed link loses its backlog, which is the only way churn costs
   anything. Loss is `1 - delivered/routed`; the summed link drops double-count.
+  `gateway_imbalance` per step = peak feeder utilisation / aggregate feeder
+  utilisation over gateways with any capacity (1 = balanced). A topology cannot change
+  feeder capacity -- ground links are not selected -- so moving load between gateways
+  is the only gain available to it there. On 187 sats it is ~5.3-5.7 for every
+  selector (range 2.5-12.5 per step): load is heavily skewed.
+- `predict.py` -- the open-loop `GroundPrediction` the extension scores against, and
+  `gateway_pair_share` (reported by `run_traffic.py`).
 
 Baseline on 187 sats: the gateway feeder links, not ISLs, are the bottleneck. Delivery
 is 100% up to 2 Gbps peak load and collapses by 5 Gbps; selectors differ by ~2%.
 Evaluate on 601 sats (bridge), build on 187. Phase 2 comparisons must include Greedy
 as well as DoTD: beating DoTD alone could be the lookahead's doing.
+
+### The extension terms (`w_egress`, `w_congestion`; both default 0)
+
+Both are per-satellite quantities in a `GroundPrediction` (`traffic/predict.py`),
+handed to `Greedy`/`DoTD` as `ground=`; `topology/` never imports `traffic/`.
+
+- **Egress** (reward): best feeder capacity from j to any gateway above the mask, 0 if
+  none. Per link, the **max** of the two ends -- a mean would rank gateway-to-gateway
+  pairs highest. Integrated over the forward window inside the same `_forward_parts`
+  loop as link quality (same offsets, same `exp(-h/H)` weights), masked by the link's
+  visibility at each future sample. Added to the forward term, not folded into its
+  `(w1 + w2)` normaliser, so switching egress on does not shrink the geometric
+  lookahead; the forward term is then bounded by `1 + w_egress`.
+- **Congestion** (penalty), current timestep only: expected demand landing on j, each
+  city's rate split equally over the satellites it sees (ASSUMED). Per link, the mean
+  of the two ends. Written as headroom `w * (1 - D)`: a constant shift on every
+  candidate, so the selection equals subtracting `w * D` -- the suite verifies it
+  over all-zero predictions.
+- Both normalised by their own running maxima (`GroundNormaliser`), causal and clipped.
+- **DoTD-backward's accumulator remembers the Phase 1 score only.** Folding the new
+  terms in rescales its memory whenever a weight is on, even with uninformative
+  predictions. A deviation from the agreed plan, made for that reason.
+- **Open loop is structural.** The predictor uses `expected_rate_bps`, never
+  `offered_bits`, and never a `TrafficSim`. The suite checks seed invariance and scans
+  `predict.py` for forbidden names. If queue feedback ever seems necessary, raise it
+  rather than adding it.
+
+Regression guard: SHA-256 of every selector's adjacency and priority sequence, recorded
+on the Phase 1 code before the extension existed, is pinned in `validate_extension.py`
+(`GOLDEN`). If stage 1 is legitimately recomputed, those pins move and must be re-recorded
+from a commit known to be Phase 1, never from the code under test.
+
+No weight is tuned. `ExtensionValidationConfig.probe_weight = 0.2` exists only to prove
+each term is not inert. At that probe every timestep differs from Phase 1 for both
+terms.
+
+**REQUIRED before reporting any extension result: a demand-perturbation sensitivity run.**
+The congestion term is fed the exact demand model stage 4 evaluates against -- a perfect
+forecast, the best case for the extension and its main threat to validity. Any reported
+gain must be re-measured with the predictor's demand perturbed away from the evaluator's
+(e.g. a shifted diurnal peak, a different trough ratio, or population noise) and the
+gain's dependence on that error stated. A result without it is not reportable.
 
 `README.md` documents stage 1 only, and two of its sections are now stale: the satellite
 selection (it describes 20 planes × 5) and the visibility-geometry formula (the clamped

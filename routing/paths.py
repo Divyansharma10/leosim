@@ -10,6 +10,12 @@ Hop count is reported as the number of *edges* in the path, so New York ->
 sat -> sat -> San Francisco is 3. The base paper reports 5 for DoTD on this
 pair; whether that counts ground links or only ISLs is not stated, so both are
 reported and neither is quietly folded into the other.
+
+Stretch factor: total path length, both ground links included, over the arc
+between the two stations (``geodesic_floor_km``). It is at least 1 for every
+path a selector can produce -- not by the triangle inequality, which gives
+only the chord, but because every routed path stays outside the sphere that
+arc lies on. A value below 1 is therefore a bug, and ``path_stretch`` raises.
 """
 
 from __future__ import annotations
@@ -22,12 +28,25 @@ from leosim.dataset import LinkDataset
 from topology.base import LinkSet
 
 from .config import RoutingConfig
-from .stations import GroundAccess
+from .stations import GroundAccess, geodesic_floor_km
 
 # Sentinel for "no path exists at this timestep". Distinguished from a real
 # metric value everywhere; rows carrying it are excluded from averages rather
 # than counted as zero.
 NO_PATH = -1
+
+
+def path_stretch(path_km: float, floor_km: float) -> float:
+    """``path_km / floor_km``, refusing to return a value below 1."""
+    if floor_km <= 0:
+        raise ValueError(f"geodesic floor must be > 0, got {floor_km} km (same station twice?)")
+    stretch = path_km / floor_km
+    if not stretch >= 1.0:
+        raise AssertionError(
+            f"stretch {stretch!r} < 1: path {path_km} km is shorter than the "
+            f"{floor_km} km arc that bounds every path from below"
+        )
+    return stretch
 
 
 def edge_costs(
@@ -119,6 +138,8 @@ def shortest_path(
             "path_capacity_mean_gbps": np.nan,
             "path_capacity_min_gbps": np.nan,
             "cost": np.nan,
+            "path_km": np.nan,
+            "stretch": np.nan,
         }
 
     # Walk the predecessor chain back from the destination.
@@ -128,21 +149,28 @@ def shortest_path(
     path.reverse()
 
     latency = 0.0
+    path_km = 0.0
     caps = []
     isl_hops = 0
     stations = list(access.values())
     for a, b in zip(path[:-1], path[1:]):
         if a < n and b < n:
             latency += float(dataset.latency[t, a, b])
+            path_km += float(dataset.distance[t, a, b])
             caps.append(float(dataset.capacity[t, a, b]))
             isl_hops += 1
         else:
             ground, sat = (a, b) if a >= n else (b, a)
             acc = stations[ground - n]
             latency += float(acc.latency[t, sat])
+            path_km += float(acc.distance_km[t, sat])
             caps.append(float(acc.capacity[t, sat]))
 
     caps_arr = np.asarray(caps)
+    # Co-located endpoints (a city on a gateway's own coordinates) have no
+    # arc to stretch over; the factor is undefined there, not a bug, and is
+    # reported as NaN like any other undefined path quantity.
+    floor_km = geodesic_floor_km(stations[0].station, stations[1].station)
     return {
         "t": t,
         "reachable": True,
@@ -152,6 +180,8 @@ def shortest_path(
         "path_capacity_mean_gbps": float(caps_arr.mean() / 1e9),
         "path_capacity_min_gbps": float(caps_arr.min() / 1e9),
         "cost": float(dist[dst]),
+        "path_km": path_km,
+        "stretch": path_stretch(path_km, floor_km) if floor_km > 0 else np.nan,
         "path": path,
     }
 

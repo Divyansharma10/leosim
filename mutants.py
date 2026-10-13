@@ -11,7 +11,8 @@ Mutants believed equivalent are marked ``expect_equivalent`` with the reason,
 and are reported separately, so a believed-equivalent survivor cannot be
 mistaken for a coverage gap and an unexpected survivor stands out.
 
-Scope: stage-2 (M*) and stage-3 (R*) modules. Each mutant names the suite that
+Scope: stage-2 (M*), stage-3 (R*), stage-4 (T*) and Phase 2 extension (X*)
+modules. Each mutant names the suite that
 is supposed to catch it, and only that suite is run, so a stage-3 mutant cannot
 be credited to a stage-2 check. The stage-1 mutation sweep referred to in the
 project doc (48 mutants) was never committed to this repository, so there was
@@ -45,6 +46,7 @@ ROOT = Path(__file__).parent
 TOPOLOGY_SUITE = (sys.executable, "validate_topology.py", "--steps", "300")
 ROUTING_SUITE = (sys.executable, "validate_routing.py", "--steps", "300")
 TRAFFIC_SUITE = (sys.executable, "validate_traffic.py", "--steps", "300")
+EXTENSION_SUITE = (sys.executable, "validate_extension.py", "--steps", "300")
 TIMEOUT_S = 900
 
 
@@ -111,8 +113,8 @@ MUTANTS: list[Mutant] = [
            "signed = priority",
            "objective flag ignored (argmin never applied)"),
     Mutant("M13", "topology/dotd.py",
-           'super().__init__(dataset, dataclasses.replace(config, lookahead="none"))',
-           "super().__init__(dataset, config)",
+           'super().__init__(dataset, dataclasses.replace(config, lookahead="none"), ground)',
+           "super().__init__(dataset, config, ground)",
            "Greedy inherits the lookahead from a shared config"),
     Mutant("M14", "topology/dotd.py",
            "w = float(np.exp(-(off * step_s) / cfg.horizon_s))",
@@ -341,6 +343,42 @@ MUTANTS: list[Mutant] = [
            "            latency += float(dataset.latency[t, a, b]) * 0.5",
            "ISL latency halved (path faster than light)",
            suite=ROUTING_SUITE),
+    Mutant("R12", "routing/paths.py",
+           "            path_km += float(acc.distance_km[t, sat])\n",
+           "            pass\n",
+           "stretch path length omits both ground links",
+           suite=ROUTING_SUITE),
+    Mutant("R13", "routing/paths.py",
+           "path_km += float(dataset.distance[t, a, b])",
+           "path_km += 0.0",
+           "stretch path length omits the ISLs",
+           suite=ROUTING_SUITE),
+    Mutant("R14", "routing/stations.py",
+           "return float(min(np.linalg.norm(va), np.linalg.norm(vb)) * angle)",
+           "return float(6371.0 * angle)",
+           "stretch floor on the mean-radius sphere, not the stations' own radius",
+           suite=ROUTING_SUITE),
+    Mutant("R15", "routing/stations.py",
+           "return float(min(np.linalg.norm(va), np.linalg.norm(vb)) * angle)",
+           "return float(np.linalg.norm(va - vb))",
+           "stretch floor is the chord, not the arc",
+           suite=ROUTING_SUITE),
+    Mutant("R16", "routing/stations.py",
+           "va, vb = np.asarray(geocentric_xyz_km(a)), np.asarray(geocentric_xyz_km(b))",
+           "return great_circle_km(a, b, radius_km=min(np.linalg.norm(geocentric_xyz_km(a)), "
+           "np.linalg.norm(geocentric_xyz_km(b))))",
+           "stretch floor angle from geodetic latitude, not geocentric vectors",
+           suite=ROUTING_SUITE),
+    Mutant("R17", "routing/paths.py",
+           "    if not stretch >= 1.0:",
+           "    if False:",
+           "stretch below 1 reported instead of raising",
+           suite=ROUTING_SUITE),
+    Mutant("R18", "routing/paths.py",
+           '"stretch": path_stretch(path_km, floor_km) if floor_km > 0 else np.nan,',
+           '"stretch": path_stretch(path_km, floor_km),',
+           "co-located endpoints crash instead of reporting an undefined stretch",
+           suite=ROUTING_SUITE),
     # --- traffic/demand.py -----------------------------------------------------
     Mutant("T01", "traffic/demand.py",
            "(local_hour - cfg.diurnal_peak_hour)",
@@ -413,6 +451,131 @@ MUTANTS: list[Mutant] = [
            "if False:",
            "gateway-sites flag ignored",
            suite=TRAFFIC_SUITE),
+    Mutant("T15", "traffic/network.py",
+           "return float(util.max() / aggregate), int((load > 0).sum())",
+           "return float(util.mean() / aggregate), int((load > 0).sum())",
+           "gateway imbalance from mean, not peak, utilisation",
+           suite=TRAFFIC_SUITE),
+    Mutant("T16", "traffic/network.py",
+           "serving = capacity > 0",
+           "serving = capacity >= 0",
+           "gateways with no feeder capacity counted as serving",
+           suite=TRAFFIC_SUITE),
+    Mutant("T17", "traffic/network.py",
+           "                path_km += acc.distance_at(t, sat)",
+           "                path_km += 0.0",
+           "stretch omits the access and feeder links from path length",
+           suite=TRAFFIC_SUITE),
+    Mutant("T18", "traffic/network.py",
+           "floor = float(self.floor_km[c, path[0] - gw_base])",
+           "floor = float(self.floor_km[c].max())",
+           "stretch measured against the farthest gateway, not the one reached",
+           suite=TRAFFIC_SUITE),
+    # --- Phase 2 extension: topology/scoring.py ----------------------------------
+    Mutant("X01", "topology/scoring.py",
+           "config.w_egress * egress_edge_norm",
+           "-config.w_egress * egress_edge_norm",
+           "egress rewarded as a penalty",
+           suite=EXTENSION_SUITE),
+    Mutant("X02", "topology/scoring.py",
+           "+ config.w_congestion * (1.0 - demand_edge_norm)",
+           "+ config.w_congestion * demand_edge_norm",
+           "congestion rewarded instead of penalised",
+           suite=EXTENSION_SUITE),
+    Mutant("X03", "topology/scoring.py",
+           "return np.maximum(egress_norm[:, None], egress_norm[None, :])",
+           "return 0.5 * (egress_norm[:, None] + egress_norm[None, :])",
+           "egress combined by mean of endpoints, not max",
+           suite=EXTENSION_SUITE),
+    Mutant("X04", "topology/scoring.py",
+           "return 0.5 * (demand_norm[:, None] + demand_norm[None, :])",
+           "return np.broadcast_to(demand_norm[None, :], (len(demand_norm), len(demand_norm))).copy()",
+           "congestion uses only j's demand (asymmetric)",
+           suite=EXTENSION_SUITE),
+    Mutant("X05", "topology/scoring.py",
+           "self.max_egress = max(self.max_egress, float(self.ground.egress_bps[t].max()))",
+           "self.max_egress = float(self.ground.egress_bps[t].max())",
+           "egress normalised by per-timestep max, not running max",
+           suite=EXTENSION_SUITE),
+    Mutant("X06", "topology/scoring.py",
+           "self.max_demand = max(self.max_demand, float(self.ground.demand_bps[t].max()))",
+           "self.max_demand = float(self.ground.demand_bps[t].max())",
+           "demand normalised by per-timestep max, not running max",
+           suite=EXTENSION_SUITE),
+    Mutant("X07", "topology/scoring.py",
+           "return np.clip(e / self.max_egress, 0.0, 1.0)",
+           "return e / self.max_egress",
+           "future egress above the causal max not clipped",
+           suite=EXTENSION_SUITE),
+    Mutant("X20", "topology/scoring.py",
+           "return np.clip(d / self.max_demand, 0.0, 1.0)",
+           "return d / self.max_demand",
+           "demand above the causal max not clipped",
+           suite=EXTENSION_SUITE),
+    # --- Phase 2 extension: topology/dotd.py -------------------------------------
+    Mutant("X08", "topology/dotd.py",
+           "egress_total += w * np.where(",
+           "egress_total += 0.0 * np.where(",
+           "egress missing from the forward window",
+           suite=EXTENSION_SUITE),
+    Mutant("X09", "topology/dotd.py",
+           "egress_edge(self.ground_norm.egress(tt))",
+           "egress_edge(self.ground_norm.egress(t))",
+           "forward egress samples read the current step, not t + h",
+           suite=EXTENSION_SUITE),
+    Mutant("X10", "topology/dotd.py",
+           "np.asarray(self.dataset.visible[tt]), egress_edge",
+           "np.ones_like(np.asarray(self.dataset.visible[tt])), egress_edge",
+           "forward egress credited to links that will be occluded",
+           suite=EXTENSION_SUITE),
+    Mutant("X11", "topology/dotd.py",
+           "        if cfg.uses_ground:\n            score = score + np.where(",
+           "        if False:\n            score = score + np.where(",
+           "ground terms never added to the score",
+           suite=EXTENSION_SUITE),
+    Mutant("X12", "topology/dotd.py",
+           "self._update_backward(links, phase1_score)",
+           "self._update_backward(links, score)",
+           "backward accumulator absorbs the extension terms",
+           suite=EXTENSION_SUITE),
+    Mutant("X13", "topology/dotd.py",
+           "if config.uses_ground and ground is None:",
+           "if False:",
+           "nonzero weight without a prediction silently accepted",
+           suite=EXTENSION_SUITE),
+    Mutant("X14", "topology/dotd.py",
+           "return geo + self.config.w_egress * egress",
+           "return geo + egress",
+           "forward egress part not weighted by w_egress",
+           suite=EXTENSION_SUITE),
+    # --- Phase 2 extension: topology/config.py -----------------------------------
+    Mutant("X15", "topology/config.py",
+           "return self.w_egress > 0 or self.w_congestion > 0",
+           "return self.w_egress > 0",
+           "congestion weight alone does not switch the ground terms on",
+           suite=EXTENSION_SUITE),
+    Mutant("X16", "topology/config.py",
+           "        if self.uses_ground:\n            label +=",
+           "        if True:\n            label +=",
+           "Phase 1 label changed by the extension",
+           suite=EXTENSION_SUITE),
+    # --- Phase 2 extension: traffic/predict.py -----------------------------------
+    Mutant("X17", "traffic/predict.py",
+           "np.maximum.at(egress, (tt, acc.sat), acc.capacity)",
+           "np.add.at(egress, (tt, acc.sat), acc.capacity)",
+           "egress sums all gateways instead of taking the best",
+           suite=EXTENSION_SUITE),
+    Mutant("X18", "traffic/predict.py",
+           "rate[tt, c] / k[tt]",
+           "rate[tt, c]",
+           "city demand counted in full on every satellite it sees",
+           suite=EXTENSION_SUITE),
+    Mutant("X19", "traffic/predict.py",
+           "rate = expected_rate_bps(sites, np.asarray(utc_hours, dtype=np.float64), tcfg)",
+           'rate = __import__("traffic.demand", fromlist=["_"]).offered_bits('
+           "expected_rate_bps(sites, np.asarray(utc_hours, dtype=np.float64), tcfg), 1.0, tcfg)",
+           "prediction uses the Poisson realisation, not the expected rate",
+           suite=EXTENSION_SUITE),
 ]
 
 
@@ -422,7 +585,7 @@ def sha(path: Path) -> str:
 
 def clear_bytecode() -> None:
     dirs = [ROOT / "__pycache__"]
-    for pkg in ("topology", "routing", "leosim"):
+    for pkg in ("topology", "routing", "traffic", "leosim"):
         dirs.extend((ROOT / pkg).rglob("__pycache__"))
     for d in dirs:
         shutil.rmtree(d, ignore_errors=True)
@@ -495,7 +658,7 @@ def main(argv: list[str]) -> int:
     # Both suites must be green before any mutant means anything. A mutant runs
     # only against the suite meant to catch it, so a suite that was already red
     # would turn every one of its mutants into a false KILL.
-    for suite in (TOPOLOGY_SUITE, ROUTING_SUITE, TRAFFIC_SUITE):
+    for suite in (TOPOLOGY_SUITE, ROUTING_SUITE, TRAFFIC_SUITE, EXTENSION_SUITE):
         if not any(m.suite == suite for m in chosen):
             continue
         print(f"Baseline: unmutated suite must pass ({' '.join(suite[1:])})")

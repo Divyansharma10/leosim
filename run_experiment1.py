@@ -52,6 +52,9 @@ def summarise(rows: list[dict], name: str, tcfg, rcfg) -> dict:
         "hops_min": int(live["hops"].min()) if len(live) else -1,
         "isl_hops_mean": float(live["isl_hops"].mean()) if len(live) else np.nan,
         "latency_mean_ms": float(live["latency_ms"].mean()) if len(live) else np.nan,
+        "stretch_mean": float(live["stretch"].mean()) if len(live) else np.nan,
+        "stretch_median": float(live["stretch"].median()) if len(live) else np.nan,
+        "stretch_min": float(live["stretch"].min()) if len(live) else np.nan,
         "path_capacity_mean_gbps": float(live["path_capacity_mean_gbps"].mean())
         if len(live)
         else np.nan,
@@ -130,7 +133,7 @@ def main() -> int:
     print(f"\n{args.pair[0]} -> {args.pair[1]}   ({tcfg.variant_label})")
     cols = [
         "algorithm", "route_metric", "reachable_frac", "hops_mean", "hops_median",
-        "hops_min", "isl_hops_mean", "latency_mean_ms", "path_capacity_mean_gbps",
+        "hops_min", "isl_hops_mean", "latency_mean_ms", "stretch_mean", "path_capacity_mean_gbps",
     ]
     print(out[cols].round(3).to_string(index=False))
 

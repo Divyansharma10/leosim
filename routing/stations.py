@@ -20,6 +20,7 @@ from __future__ import annotations
 import dataclasses
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from functools import lru_cache
 
 import numpy as np
 from skyfield.api import load, wgs84
@@ -105,6 +106,38 @@ def chord_km(a: GroundStation, b: GroundStation, radius_km: float = 6371.0) -> f
         )
     )
     return float(2.0 * radius_km * np.sin(d / 2))
+
+
+@lru_cache(maxsize=None)
+def geocentric_xyz_km(station: GroundStation) -> tuple[float, float, float]:
+    """Earth-fixed position on the WGS84 ellipsoid, km. Constant in time."""
+    site = wgs84.latlon(station.latitude_deg, station.longitude_deg, station.elevation_m)
+    return tuple(float(v) for v in site.itrs_xyz.km)
+
+
+def geodesic_floor_km(a: GroundStation, b: GroundStation) -> float:
+    """Arc between a and b on the sphere of radius min(|a|, |b|): the denominator
+    of the stretch factor, and a rigorous lower bound on any routed path.
+
+    Why this and not ``great_circle_km`` or ``chord_km``. The triangle inequality
+    bounds a path only by the chord. The arc bound comes from elsewhere: radial
+    projection onto a sphere of radius r never lengthens a curve lying outside
+    it, so any path that stays outside the r-sphere is at least the r-arc
+    between the projected endpoints. Every routed path does stay outside a
+    sphere of radius min(|a|, |b|): ISLs clear Earth plus 50 km by stage-1
+    visibility, and an access link leaves its station above the elevation mask,
+    so its distance from the centre grows from the station outward.
+
+    Two details keep the bound exact rather than approximately true. The radius
+    is the stations' own geocentric radius -- New York sits at ~6369 km, inside
+    the 6371 km sphere ``great_circle_km`` assumes, so that arc would not bound
+    the path. And the angle is between the stations' geocentric VECTORS:
+    ``great_circle_km`` treats geodetic latitude as spherical, which is a
+    different angle on an oblate Earth.
+    """
+    va, vb = np.asarray(geocentric_xyz_km(a)), np.asarray(geocentric_xyz_km(b))
+    angle = np.arctan2(np.linalg.norm(np.cross(va, vb)), float(va @ vb))
+    return float(min(np.linalg.norm(va), np.linalg.norm(vb)) * angle)
 
 
 def dataset_times(dataset: LinkDataset):

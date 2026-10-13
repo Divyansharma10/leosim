@@ -122,6 +122,15 @@ class TrafficConfig:
 
     @property
     def variant_label(self) -> str:
+        return (
+            f"load={self.peak_total_gbps:g}Gbps, direction={self.direction}, "
+            f"{self.gateway_label}, buffer={self.buffer_s * 1e3:g}ms"
+        )
+
+    @property
+    def gateway_label(self) -> str:
+        """The gateway part of the label alone, which is all a GroundPrediction
+        depends on: the offered-load level cancels under normalisation."""
         sites = (f"populous{self.n_gateways}" if self.gateway_sites == "populous20"
                  else self.gateway_sites)
         def show(v, unit):
@@ -130,10 +139,7 @@ class TrafficConfig:
             f"B={show(self.feeder_bandwidth_hz, 'Hz')},P={show(self.feeder_tx_power_dbw, 'dBW')},"
             f"T={show(self.feeder_noise_temperature_k, 'K')}"
         )
-        return (
-            f"load={self.peak_total_gbps:g}Gbps, direction={self.direction}, "
-            f"gateways={sites}, feeder={feeder}, buffer={self.buffer_s * 1e3:g}ms"
-        )
+        return f"gateways={sites}, feeder={feeder}"
 
     @property
     def feeder_is_default(self) -> bool:

@@ -92,6 +92,27 @@ class TopologyConfig:
     # --- +Grid structure: our choice, not the paper's -------------------------
     grid_gaps: GridGapPolicy = "strict"
 
+    # --- Phase 2 extension: ground-aware terms. OURS, not the paper's. -------
+    # Both are open-loop predictions from geometry and demographics (a
+    # GroundPrediction handed to the selector); neither reads queue state.
+    # Default 0 reproduces Phase 1 exactly. NOT TUNED: no value other than 0
+    # has been justified yet.
+    #
+    # Egress: reward for links that reach a satellite with a gateway in view,
+    # integrated over the same forward window as the geometric lookahead. Per
+    # link it is the MAX of the two endpoints' normalised egress: a mean would
+    # rank gateway-to-gateway pairs highest and spend gateway satellites'
+    # terminals on each other.
+    w_egress: float = 0.0
+    # Congestion: penalty for links into satellites under heavy predicted
+    # demand, at the current timestep only. Written as headroom,
+    # w * (1 - mean of endpoints' normalised demand), as latency is written
+    # w2 * (1 - latency): every candidate edge gets the same constant w, so the
+    # selection equals that of subtracting w * demand, while every score term
+    # stays non-negative. The backward accumulator does not include either
+    # extension term (topology.dotd), so the constant cannot leak into it.
+    w_congestion: float = 0.0
+
     def __post_init__(self) -> None:
         if self.u_max < 1:
             raise ValueError(f"u_max must be >= 1, got {self.u_max}")
@@ -99,9 +120,15 @@ class TopologyConfig:
             raise ValueError(f"horizon_s must be > 0, got {self.horizon_s}")
         if self.horizon_stride_s <= 0:
             raise ValueError("horizon_stride_s must be > 0")
-        for name in ("w1_capacity", "w2_latency", "w3_churn", "w_lookahead"):
+        for name in ("w1_capacity", "w2_latency", "w3_churn", "w_lookahead",
+                     "w_egress", "w_congestion"):
             if getattr(self, name) < 0:
                 raise ValueError(f"{name} must be >= 0")
+
+    @property
+    def uses_ground(self) -> bool:
+        """True when either extension term is active and needs a GroundPrediction."""
+        return self.w_egress > 0 or self.w_congestion > 0
 
     @property
     def variant_label(self) -> str:
@@ -111,14 +138,24 @@ class TopologyConfig:
         interpretable, so this string is printed by the driver and carried into
         the metrics frame.
         """
-        return (
+        label = (
             f"objective={self.objective}, latency={self.latency_formula}, "
             f"lookahead={self.lookahead}, grid_gaps={self.grid_gaps}"
         )
+        # Extension weights appear only when active, so Phase 1 labels -- and
+        # every result row stamped with them -- are unchanged.
+        if self.uses_ground:
+            label += f", w_egress={self.w_egress:g}, w_congestion={self.w_congestion:g}"
+        return label
 
     @property
     def file_tag(self) -> str:
-        """Filename suffix for the active flags. ``grid_gaps`` appears only when
-        not the default, so Phase 1 output names are unchanged."""
+        """Filename suffix for the active flags. ``grid_gaps`` and the extension
+        weights appear only when not the default, so Phase 1 output names are
+        unchanged."""
         tag = f"{self.objective}_{self.latency_formula}"
-        return tag if self.grid_gaps == "strict" else f"{tag}_grid-{self.grid_gaps}"
+        if self.grid_gaps != "strict":
+            tag += f"_grid-{self.grid_gaps}"
+        if self.uses_ground:
+            tag += f"_egress{self.w_egress:g}_cong{self.w_congestion:g}"
+        return tag

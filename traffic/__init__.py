@@ -17,7 +17,8 @@ from .demand import (
     local_solar_hour,
     offered_bits,
 )
-from .network import SparseAccess, TrafficSim, feeder_budget, gateway_access
+from .network import SparseAccess, TrafficSim, feeder_budget, floor_matrix, gateway_access
+from .predict import gateway_pair_share, predict_ground
 
 __all__ = [
     "DemandSites",
@@ -29,8 +30,11 @@ __all__ = [
     "diurnal_factor",
     "expected_rate_bps",
     "feeder_budget",
+    "floor_matrix",
     "gateway_access",
+    "gateway_pair_share",
     "load_sites",
     "local_solar_hour",
     "offered_bits",
+    "predict_ground",
 ]

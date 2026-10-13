@@ -40,6 +40,22 @@ Backward
     alone makes priority(i, j) != priority(j, i), which a bidirectional link
     cannot have: the two endpoints would rank the same edge differently. The
     edge term is therefore the mean of both endpoints, (A[i] + A[j]) / 2.
+
+Phase 2 extension (ours; both weights default to 0, which is Phase 1 exactly)
+    score_t   += w_egress * E_edge(t) + w_congestion * (1 - D_edge(t))
+    forward_t += w_egress * sum_h w_h * E_edge(t + h) * visible(t + h) / sum_h w_h
+
+    E and D are per-satellite egress and demand from a GroundPrediction,
+    normalised by their own running maxima; see topology.scoring. Egress enters
+    the forward window through the same loop, offsets and exp(-h / horizon)
+    weights as link quality -- gateway passes are as predictable as orbits.
+    Congestion is current-timestep only. The backward accumulator keeps
+    remembering the Phase 1 score alone; see _select.
+
+    The egress part is added to the forward term rather than folded into the
+    (w1 + w2) normaliser: folding it in would shrink the geometric lookahead
+    whenever egress is switched on, confounding the two. The forward term is
+    then bounded by 1 + w_egress, as the score is bounded by its weight sum.
 """
 
 from __future__ import annotations
@@ -52,15 +68,45 @@ from leosim.dataset import LinkDataset
 
 from .base import LinkSet, TopologySelector, b_matching
 from .config import TopologyConfig
-from .scoring import RunningNormaliser, churn_matrix, quality_matrix
+from .scoring import (
+    GroundNormaliser,
+    GroundPrediction,
+    RunningNormaliser,
+    churn_matrix,
+    congestion_edge,
+    egress_edge,
+    ground_score,
+    quality_matrix,
+)
 
 
 class ScoredSelector(TopologySelector):
     """Shared machinery for DoTD and Greedy."""
 
+    def __init__(
+        self,
+        dataset: LinkDataset,
+        config: TopologyConfig,
+        ground: GroundPrediction | None = None,
+    ) -> None:
+        # A weight with no prediction behind it would silently score zero.
+        if config.uses_ground and ground is None:
+            raise ValueError(
+                f"w_egress={config.w_egress}, w_congestion={config.w_congestion} "
+                "need a GroundPrediction; none was given"
+            )
+        if ground is not None and ground.egress_bps.shape != (dataset.n_steps, dataset.n_sats):
+            raise ValueError(
+                f"GroundPrediction is {ground.egress_bps.shape}, dataset is "
+                f"({dataset.n_steps}, {dataset.n_sats})"
+            )
+        self.ground = ground
+        super().__init__(dataset, config)
+
     def reset(self) -> None:
         super().reset()
         self.normaliser = RunningNormaliser(self.dataset, self.config.latency_formula)
+        self.ground_norm = None if self.ground is None else GroundNormaliser(self.ground)
         self.accumulated = np.zeros(self.dataset.n_sats, dtype=np.float64)
         self.last_score: np.ndarray | None = None
         self.last_priority: np.ndarray | None = None
@@ -74,24 +120,42 @@ class ScoredSelector(TopologySelector):
         horizon = max(1, int(round(self.config.horizon_s / step_s)))
         return np.arange(0, horizon + 1, stride)
 
-    def _forward_term(self, t: int) -> np.ndarray:
+    def _forward_parts(self, t: int) -> tuple[np.ndarray, np.ndarray | None]:
+        """Discounted window means of link quality (in [0, 1]) and, when the
+        egress term is on, of per-link egress (in [0, 1]). One loop: egress
+        shares the offsets and weights of the geometric lookahead."""
         cfg = self.config
         quality_scale = cfg.w1_capacity + cfg.w2_latency
+        with_egress = cfg.w_egress > 0
         n = self.dataset.n_sats
-        if quality_scale == 0:
-            return np.zeros((n, n))
+        if quality_scale == 0 and not with_egress:
+            return np.zeros((n, n)), None
 
         step_s = self.dataset.config.step_s
         total = np.zeros((n, n), dtype=np.float64)
+        egress_total = np.zeros((n, n), dtype=np.float64) if with_egress else None
         weight_sum = 0.0
         for off in self._step_offsets():
             tt = t + int(off)
             if tt >= self.dataset.n_steps:
                 break
             w = float(np.exp(-(off * step_s) / cfg.horizon_s))
-            total += w * quality_matrix(self.dataset, tt, self.normaliser, cfg)
+            if quality_scale != 0:
+                total += w * quality_matrix(self.dataset, tt, self.normaliser, cfg)
+            if with_egress:
+                # A link that will not exist at tt can deliver nothing then.
+                egress_total += w * np.where(
+                    np.asarray(self.dataset.visible[tt]), egress_edge(self.ground_norm.egress(tt)), 0.0
+                )
             weight_sum += w
-        return total / (weight_sum * quality_scale)
+        geo = total / (weight_sum * quality_scale) if quality_scale != 0 else total
+        return geo, (None if egress_total is None else egress_total / weight_sum)
+
+    def _forward_term(self, t: int) -> np.ndarray:
+        geo, egress = self._forward_parts(t)
+        if egress is None:
+            return geo
+        return geo + self.config.w_egress * egress
 
     def _backward_term(self) -> np.ndarray:
         a = self.accumulated
@@ -116,12 +180,27 @@ class ScoredSelector(TopologySelector):
 
         # Running max absorbs t before t is scored -- see RunningNormaliser.
         self.normaliser.update(t)
+        if self.ground_norm is not None:
+            self.ground_norm.update(t)
 
         prev_adj = None if self.prev is None else self.prev.adjacency
         score = quality_matrix(ds, t, self.normaliser, cfg) + cfg.w3_churn * churn_matrix(
             prev_adj, ds.n_sats
         )
         score = np.where(visible, score, 0.0)
+
+        # The backward accumulator remembers the Phase 1 score only. Folding
+        # the ground terms in would rescale its memory whenever a weight is
+        # switched on, even with uninformative predictions, and would leak the
+        # congestion term's headroom constant into the EMA -- breaking the
+        # equivalence with a subtracted penalty that holds everywhere else.
+        phase1_score = score
+        if cfg.uses_ground:
+            score = score + np.where(visible, ground_score(
+                egress_edge(self.ground_norm.egress(t)),
+                congestion_edge(self.ground_norm.demand(t)),
+                cfg,
+            ), 0.0)
 
         if cfg.lookahead == "forward":
             priority = score + cfg.w_lookahead * self._forward_term(t)
@@ -138,7 +217,7 @@ class ScoredSelector(TopologySelector):
         links = b_matching(signed, visible, cfg.u_max, t)
 
         if cfg.lookahead == "backward":
-            self._update_backward(links, score)
+            self._update_backward(links, phase1_score)
 
         self.last_score = score
         self.last_priority = priority
@@ -148,13 +227,15 @@ class ScoredSelector(TopologySelector):
 class DoTD(ScoredSelector):
     """DTEG-based Optimal Topology Design (Ron et al., INFOCOM 2025)."""
 
-    def __init__(self, dataset: LinkDataset, config: TopologyConfig) -> None:
+    def __init__(
+        self, dataset: LinkDataset, config: TopologyConfig, ground: GroundPrediction | None = None
+    ) -> None:
         if config.lookahead == "none":
             raise ValueError(
                 "DoTD with lookahead='none' is Greedy. Use Greedy explicitly so "
                 "the two cannot be confused in results."
             )
-        super().__init__(dataset, config)
+        super().__init__(dataset, config, ground)
         self.name = f"DoTD-{config.lookahead}"
 
 
@@ -169,5 +250,7 @@ class Greedy(ScoredSelector):
 
     name = "Greedy"
 
-    def __init__(self, dataset: LinkDataset, config: TopologyConfig) -> None:
-        super().__init__(dataset, dataclasses.replace(config, lookahead="none"))
+    def __init__(
+        self, dataset: LinkDataset, config: TopologyConfig, ground: GroundPrediction | None = None
+    ) -> None:
+        super().__init__(dataset, dataclasses.replace(config, lookahead="none"), ground)

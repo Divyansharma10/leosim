@@ -1,5 +1,8 @@
 """Link scoring: running normalisation (Eq. 12) and the weighted score.
 
+Phase 2 adds two per-satellite ground terms at the bottom of this module
+(GroundPrediction onward). Both default to weight 0; Phase 1 is unchanged.
+
 The score has three terms on incomparable scales -- bits/s, seconds, and a 0/1
 churn flag -- so the first two are normalised to [0, 1] before weighting.
 
@@ -11,6 +14,8 @@ lookahead accumulation depends on.
 """
 
 from __future__ import annotations
+
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -133,3 +138,104 @@ def churn_matrix(prev_adjacency: np.ndarray | None, n_sats: int) -> np.ndarray:
     if prev_adjacency is None:
         return np.zeros((n_sats, n_sats), dtype=np.float64)
     return prev_adjacency.astype(np.float64)
+
+
+# --- Phase 2 extension: ground-aware terms ------------------------------------
+#
+# Both quantities are per SATELLITE, not per link. They arrive precomputed in a
+# GroundPrediction, so this package never imports the traffic layer (which
+# imports topology.base) and has no route by which queue state could reach a
+# score: the selector sees two fixed arrays and nothing else.
+
+
+@dataclass(frozen=True)
+class GroundPrediction:
+    """Open-loop, per-satellite ground predictions for every timestep.
+
+    ``egress_bps[t, s]``: capacity of s's best feeder link to any gateway above
+    the mask at t, 0 if it sees none. ``demand_bps[t, s]``: expected user demand
+    landing on s at t. Built by ``traffic.predict.predict_ground`` from geometry
+    and population only. ``label`` names the ground variant (mask, gateways,
+    feeder budget) and must travel with any result that used it.
+    """
+
+    egress_bps: np.ndarray  # (T, N)
+    demand_bps: np.ndarray  # (T, N)
+    label: str
+
+    def __post_init__(self) -> None:
+        if self.egress_bps.shape != self.demand_bps.shape or self.egress_bps.ndim != 2:
+            raise ValueError(
+                f"egress {self.egress_bps.shape} and demand {self.demand_bps.shape} "
+                "must both be (T, N)"
+            )
+        for name in ("egress_bps", "demand_bps"):
+            a = getattr(self, name)
+            if not np.all(np.isfinite(a)) or a.min(initial=0.0) < 0:
+                raise ValueError(f"{name} must be finite and non-negative")
+
+
+def ground_score(
+    egress_edge_norm: np.ndarray | float,
+    demand_edge_norm: np.ndarray | float,
+    config: TopologyConfig,
+) -> np.ndarray | float:
+    """``w_egress * egress + w_congestion * (1 - demand)``, over already-combined,
+    already-normalised per-link inputs. Added to ``link_score``; kept separate so
+    the Phase 1 function is untouched and both can be pinned by hand."""
+    return (
+        config.w_egress * egress_edge_norm
+        + config.w_congestion * (1.0 - demand_edge_norm)
+    )
+
+
+def egress_edge(egress_norm: np.ndarray) -> np.ndarray:
+    """(N,) -> (N, N): a link is worth the better of its two ends' egress.
+
+    MAX, not mean: under the mean a link between two gateway-visible satellites
+    scores highest of all, pulling them onto each other. Under the max, linking
+    a gateway-visible satellite to one without is worth just as much.
+    """
+    return np.maximum(egress_norm[:, None], egress_norm[None, :])
+
+
+def congestion_edge(demand_norm: np.ndarray) -> np.ndarray:
+    """(N,) -> (N, N): mean of the two ends' demand, as the backward term does.
+    Symmetric, so i and j rank the link identically."""
+    return 0.5 * (demand_norm[:, None] + demand_norm[None, :])
+
+
+class GroundNormaliser:
+    """Running maxima for egress and demand: the RunningNormaliser scheme
+    (monotone, causal, clipped) applied to the two ground quantities.
+
+    The maxima are over all satellites at each timestep, not only linked ones.
+    While the egress max is still 0 -- no satellite has yet seen a gateway --
+    every egress term normalises to 0, including future samples; the suite
+    asserts that is not the case at t=0 on the real shell.
+    """
+
+    def __init__(self, ground: GroundPrediction) -> None:
+        self.ground = ground
+        self.max_egress = 0.0
+        self.max_demand = 0.0
+        self.history: list[tuple[int, float, float]] = []
+
+    def update(self, t: int) -> None:
+        self.max_egress = max(self.max_egress, float(self.ground.egress_bps[t].max()))
+        self.max_demand = max(self.max_demand, float(self.ground.demand_bps[t].max()))
+        self.history.append((t, self.max_egress, self.max_demand))
+
+    def egress(self, t: int) -> np.ndarray:
+        """(N,) normalised egress at t against the causal max. ``t`` may be in
+        the future, where the clip binds."""
+        e = np.asarray(self.ground.egress_bps[t], dtype=np.float64)
+        if self.max_egress <= 0:
+            return np.zeros_like(e)
+        return np.clip(e / self.max_egress, 0.0, 1.0)
+
+    def demand(self, t: int) -> np.ndarray:
+        d = np.asarray(self.ground.demand_bps[t], dtype=np.float64)
+        if self.max_demand <= 0:
+            return np.zeros_like(d)
+        return np.clip(d / self.max_demand, 0.0, 1.0)

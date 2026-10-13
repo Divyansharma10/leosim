@@ -41,8 +41,9 @@ from routing import (
     route_run,
     shortest_path,
 )
-from routing.stations import station_geometry
-from topology import DoTD, Greedy, PlusGrid, TopologyConfig
+from routing.paths import path_stretch
+from routing.stations import GroundAccess, GroundStation, geodesic_floor_km, station_geometry
+from topology import DoTD, Greedy, LinkSet, PlusGrid, TopologyConfig
 from validate import Checks, section
 
 ROOT = Path(__file__).parent
@@ -71,6 +72,26 @@ PIN_VERTICAL_DEFLECTION_DEG = {
 }
 
 PIN_REL_TOL = 1e-12
+
+# Stretch by hand. Two stations on the equator 90 deg apart sit exactly at the
+# WGS84 equatorial radius, so the floor arc is 6378.137 * pi / 2 km. Path: 1000
+# km up, a 12000 km ISL, 1000 km down = 14000 km.
+#   floor   = 6378.137 * 1.5707963267948966 = 10018.754171394621 km
+#   stretch = 14000 / 10018.754171394621    = 1.397379330852589
+# A 6371 km sphere would give 1.398...; the chord (9020 km) 1.552.
+PIN_STRETCH_FLOOR_KM = 10018.754171394621
+PIN_STRETCH = 1.397379330852589
+
+# Off the equator the floor's two details matter, and the equatorial pin above
+# cannot see either. New York -> San Francisco floor, regression literal from
+# geodesic_floor_km (geocentric radius 6369.08 km, angle between geocentric
+# vectors). For contrast: great_circle_km gives 4129.086 km (geodetic latitude
+# on a 6371 km sphere), chord_km 4057.198 km. Recorded, not hand-derived.
+PIN_FLOOR_NY_SF_KM = 4139.208110739035
+
+# path_km / c against the summed latency. Stage-1 distances and latencies are
+# stored as float32, so they agree to float32 precision, not float64.
+STRETCH_LATENCY_REL_TOL = 1e-6
 
 
 def _pair_access(dataset, rcfg, times, pair=("New York", "San Francisco")):
@@ -548,6 +569,92 @@ def check_experiment(
     )
 
 
+def check_stretch(
+    chk: Checks, dataset: LinkDataset, results: dict, rcfg: RoutingConfig, times, n_steps: int
+) -> None:
+    """Stretch factor: path length over the arc that bounds every path below.
+
+    ``path_stretch`` raises below 1, so a violation in production code surfaces
+    here as an AssertionError; it is caught and counted rather than allowed to
+    abort the suite, so the count is reported.
+    """
+    section("Stretch factor: >= 1 everywhere, pinned by hand")
+
+    from validate_topology import _synthetic
+    n = 2
+    vis = np.zeros((1, n, n), dtype=bool)
+    vis[0, 0, 1] = vis[0, 1, 0] = True
+    dist = np.where(vis, 12000.0, 0.0)
+    ds = _synthetic(capacity=vis * 1.0e9, latency=vis * 0.04, distance=dist, visible=vis)
+
+    def ground(name: str, lon: float, sat: int) -> GroundAccess:
+        v = np.zeros((1, n), dtype=bool)
+        v[0, sat] = True
+        return GroundAccess(GroundStation(name, 0.0, lon), v, np.where(v, 1000.0, 0.0),
+                            np.where(v, 90.0, 0.0), v * 4.0e9, v * 0.0033)
+
+    access = {"A": ground("A", 0.0, 0), "B": ground("B", 90.0, 1)}
+    res = shortest_path(ds, LinkSet(vis[0], 0), access, 0, rcfg)
+    chk.close_to("floor arc between equatorial stations 90 deg apart",
+                 geodesic_floor_km(access["A"].station, access["B"].station),
+                 PIN_STRETCH_FLOOR_KM, PIN_REL_TOL, " km", extra="6378.137 * pi / 2")
+    chk.close_to("stretch of a 1000 + 12000 + 1000 km path between them", res["stretch"],
+                 PIN_STRETCH, PIN_REL_TOL, extra=f"path_km {res['path_km']} / 10018.754171394621")
+
+    chk.close_to("floor arc New York -> San Francisco: geocentric radius and angle",
+                 geodesic_floor_km(CITIES["New York"], CITIES["San Francisco"]),
+                 PIN_FLOOR_NY_SF_KM, 1e-9, " km",
+                 extra=f"great_circle_km {great_circle_km(CITIES['New York'], CITIES['San Francisco']):.3f} km")
+
+    same = {"A": ground("A", 0.0, 0), "A2": ground("A2", 0.0, 1)}
+    r_same = shortest_path(ds, LinkSet(vis[0], 0), same, 0, rcfg)
+    chk.record("co-located endpoints: path reported, stretch undefined (NaN), no error",
+               r_same["reachable"] and np.isnan(r_same["stretch"]) and r_same["path_km"] == 14000.0,
+               f"reachable {r_same['reachable']}, path_km {r_same['path_km']}, stretch {r_same['stretch']}")
+
+    try:
+        path_stretch(9000.0, 10000.0)
+        chk.record("a path shorter than the floor raises rather than reporting stretch < 1", False,
+                   "returned without raising")
+    except AssertionError as e:
+        chk.record("a path shorter than the floor raises rather than reporting stretch < 1", True,
+                   f"AssertionError: {e}")
+    chk.record("discrimination: a path exactly on the floor is accepted with stretch 1",
+               path_stretch(10000.0, 10000.0) == 1.0, "path_stretch(10000, 10000)")
+
+    lowest, below, undefined, checked, lat_worst = np.inf, 0, 0, 0, 0.0
+    for label, a, b in PAPER_PAIRS:
+        pair_access = {c: compute_access(dataset, CITIES[c], rcfg, times) for c in (a, b)}
+        for name, linksets in results.items():
+            for t in range(n_steps):
+                try:
+                    r = shortest_path(dataset, linksets[t], pair_access, t, rcfg)
+                except AssertionError:
+                    below += 1
+                    continue
+                if not r["reachable"]:
+                    continue
+                checked += 1
+                if not np.isfinite(r["stretch"]):
+                    undefined += 1
+                    continue
+                lowest = min(lowest, r["stretch"])
+                lat_s = r["latency_ms"] / 1e3
+                lat_worst = max(lat_worst, abs(r["path_km"] * 1e3 / SPEED_OF_LIGHT_M_S - lat_s) / lat_s)
+    chk.record(
+        "stretch >= 1 at every timestep, for every paper pair and every algorithm",
+        below == 0 and undefined == 0 and checked > 0 and lowest >= 1.0,
+        f"{checked} reachable paths ({len(PAPER_PAIRS)} pairs x {len(results)} algorithms x "
+        f"{n_steps} steps); {below} raised below 1; {undefined} undefined; lowest stretch {lowest:.4f}",
+    )
+    chk.record(
+        "path length over c equals the path latency (both ground links included)",
+        lat_worst < STRETCH_LATENCY_REL_TOL and checked > 0,
+        f"worst relative mismatch {lat_worst:.2e} over {checked} paths "
+        f"(tolerance {STRETCH_LATENCY_REL_TOL:g}, float32 storage)",
+    )
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--steps", type=int, default=None)
@@ -591,6 +698,7 @@ def main() -> int:
     check_paths(chk, dataset, results, access, rcfg)
     check_latency_floor(chk, dataset, results['DoTD-forward'], rcfg, times, n_steps)
     check_experiment(chk, dataset, results, access, rcfg, n_steps)
+    check_stretch(chk, dataset, results, rcfg, times, n_steps)
     return chk.summarise()
 
 

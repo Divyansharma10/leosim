@@ -1,0 +1,14 @@
+[cache] hit C:\Users\divya\leosim\cache\a527d90194e539f7
+[variant] objective=max, latency=d_over_c, lookahead=forward, grid_gaps=strict, w_egress=0, w_congestion=0.2 | metric=hop, mask=25deg, access=all | load=2Gbps, direction=to_user, gateways=populous20, feeder=stage1, buffer=50ms
+[access] 200 cities, 20 gateways in 1s; gateway feeder capacity per gateway: mean 0.89 Gbps (range 0.00-1.66), total 17.7 Gbps
+[ground] ground: mask=25deg, gateways=populous20, feeder=stage1, demand=expected population x diurnal (perfect forecast), split=equal
+[topology] 1 selectors x 360 steps in 1s
+  load     2 seed 7  Greedy                 delivered 1.0000  delay    7.8 ms  p95   13.3 ms  (13s)
+  load   2.5 seed 7  Greedy                 delivered 0.9991  delay    9.4 ms  p95   13.5 ms  (13s)
+  load     3 seed 7  Greedy                 delivered 0.9894  delay   11.6 ms  p95   13.8 ms  (13s)
+  load   3.5 seed 7  Greedy                 delivered 0.9751  delay   15.7 ms  p95   15.5 ms  (14s)
+  load     4 seed 7  Greedy                 delivered 0.9536  delay   20.2 ms  p95   56.4 ms  (13s)
+  load   4.5 seed 7  Greedy                 delivered 0.9272  delay   23.6 ms  p95   56.9 ms  (14s)
+  load     5 seed 7  Greedy                 delivered 0.9007  delay   26.4 ms  p95   57.1 ms  (14s)
+
+[out] results\phase2\traffic_187sats_max_d_over_c_egress0_cong0.2_hop_populous20_feeder-stage1_step5.csv (+ _steps.csv.gz)

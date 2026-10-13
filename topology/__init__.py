@@ -10,11 +10,13 @@ from .base import ConstraintViolation, LinkSet, TopologySelector, assert_valid, 
 from .config import TopologyConfig
 from .dotd import DoTD, Greedy
 from .grid import PlusGrid
+from .scoring import GroundPrediction
 
 __all__ = [
     "ConstraintViolation",
     "DoTD",
     "Greedy",
+    "GroundPrediction",
     "LinkSet",
     "PlusGrid",
     "TopologyConfig",

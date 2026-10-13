@@ -39,7 +39,8 @@ from scipy.sparse.csgraph import dijkstra
 from leosim.dataset import LinkDataset
 from leosim.linkbudget import capacity_bps
 from routing.config import RoutingConfig
-from routing.stations import GroundAccess, GroundStation, compute_access, ground_link_budget
+from routing.paths import path_stretch
+from routing.stations import GroundAccess, GroundStation, compute_access, geodesic_floor_km, ground_link_budget
 from topology.base import LinkSet
 
 from .config import TrafficConfig
@@ -57,12 +58,19 @@ class SparseAccess:
     sat: np.ndarray
     capacity: np.ndarray  # bits/s
     latency: np.ndarray  # s
+    # Slant range, for the stretch factor. Optional so hand-built test access
+    # without geometry still works; stretch is then not computed.
+    distance_km: np.ndarray | None = None
 
     @classmethod
     def from_access(cls, acc: GroundAccess) -> "SparseAccess":
         tt, ss = np.nonzero(acc.visible)
         indptr = np.searchsorted(tt, np.arange(acc.visible.shape[0] + 1))
-        return cls(indptr, ss, acc.capacity[tt, ss], acc.latency[tt, ss])
+        return cls(indptr, ss, acc.capacity[tt, ss], acc.latency[tt, ss], acc.distance_km[tt, ss])
+
+    def distance_at(self, t: int, sat: int) -> float:
+        lo, hi = self.indptr[t], self.indptr[t + 1]
+        return float(self.distance_km[lo + np.nonzero(self.sat[lo:hi] == sat)[0][0]])
 
     def at(self, t: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         lo, hi = self.indptr[t], self.indptr[t + 1]
@@ -96,6 +104,11 @@ def gateway_access(
     return dataclasses.replace(sp, capacity=np.asarray(cap, dtype=np.float64))
 
 
+def floor_matrix(cities: list[GroundStation], gateways: list[GroundStation]) -> np.ndarray:
+    """(cities, gateways) geodesic floor in km, the stretch denominator."""
+    return np.array([[geodesic_floor_km(c, g) for g in gateways] for c in cities])
+
+
 def _cost(metric: str, capacity: np.ndarray, latency: np.ndarray, rcfg: RoutingConfig) -> np.ndarray:
     # Same three metrics as routing.paths.edge_costs, on the same inputs.
     if metric == "hop":
@@ -118,8 +131,15 @@ class TrafficSim:
         gateway_access: list[SparseAccess],
         tcfg: TrafficConfig,
         rcfg: RoutingConfig,
+        floor_km: np.ndarray | None = None,
     ) -> None:
+        """``floor_km`` is (cities, gateways) of ``routing.geodesic_floor_km``;
+        when given, each routed path's stretch factor is reported, exactly as
+        stage 3 defines it, with the gateway the city egressed through as the
+        far end. A co-located pair (floor 0) has no stretch and is counted
+        apart, as in stage 3."""
         self.dataset = dataset
+        self.floor_km = floor_km
         self.city_access = city_access
         self.gateway_access = gateway_access
         self.tcfg = tcfg
@@ -246,6 +266,7 @@ class TrafficSim:
 
         # Per-city delivery and delay, from the links on its path.
         delivered, delays, weights = 0.0, [], []
+        stretch_sum = stretch_bits = stretch_undefined = km_sum = 0.0
         lat_isl = np.asarray(self.dataset.latency[t], dtype=np.float64)
         for c, (src, dst) in edges_of.items():
             keep = float(np.prod(1.0 - drop_frac[src, dst]))
@@ -262,6 +283,14 @@ class TrafficSim:
                     prop += float(lat[np.nonzero(sats == sat)[0][0]])
             delays.append(prop + float(qdelay[src, dst].sum()))
             weights.append(offered[c])
+            if self.floor_km is not None:
+                km, s = self._path_km_stretch(paths[c], c, t)
+                km_sum += offered[c] * km
+                if np.isnan(s):
+                    stretch_undefined += offered[c]
+                else:
+                    stretch_sum += offered[c] * s
+                    stretch_bits += offered[c]
 
         delays_arr, w = np.asarray(delays), np.asarray(weights)
         routed = float(w.sum())
@@ -274,6 +303,7 @@ class TrafficSim:
             p95 = mean = np.nan
 
         gw = slice(self.n + self.n_city, self.m)
+        gw_imbalance, gw_loaded = self._gateway_imbalance(arrivals, cap, gw)
         return {
             "t": t,
             "offered_bits": float(offered.sum()),
@@ -290,7 +320,60 @@ class TrafficSim:
             "links_saturated": int((util[live] >= 1.0).sum()),
             # Gateway feeder links, in whichever direction the traffic runs.
             "feeder_util_max": float(max(util[gw, :].max(), util[:, gw].max())) if self.n_gw else 0.0,
+            "gateway_imbalance": gw_imbalance,
+            "gateways_loaded": gw_loaded,
+            # (G,) bits on each gateway's feeder links this step, for per-gateway shares.
+            "gateway_load_bits": arrivals[gw, :].sum(axis=1) + arrivals[:, gw].sum(axis=0),
+            # Demand-weighted over routed cities whose stretch is defined.
+            "stretch_mean": stretch_sum / stretch_bits if stretch_bits > 0 else np.nan,
+            "stretch_bits": stretch_bits,
+            "stretch_undefined_bits": stretch_undefined,
+            # Demand-weighted routed path length. Stretch alone misleads here: a
+            # city a few km from its gateway still climbs ~1100 km to a satellite
+            # and back, so its stretch is in the hundreds and dominates a mean.
+            "path_km_mean": km_sum / routed if routed > 0 and self.floor_km is not None else np.nan,
         }
+
+    def _path_km_stretch(self, path: list, c: int, t: int) -> tuple[float, float]:
+        """Stretch of one routed path (queue nodes, gateway -> city): its length
+        over the geodesic floor between the city and the gateway it reached.
+        Same definition and same guard as ``routing.paths.path_stretch``."""
+        n, gw_base = self.n, self.n + self.n_city
+        path_km = 0.0
+        for u, v in zip(path[:-1], path[1:]):
+            if u < n and v < n:
+                path_km += float(self.dataset.distance[t, u, v])
+            else:
+                ground, sat = (u, v) if u >= n else (v, u)
+                acc = (self.city_access[ground - n] if ground < gw_base
+                       else self.gateway_access[ground - gw_base])
+                path_km += acc.distance_at(t, sat)
+        floor = float(self.floor_km[c, path[0] - gw_base])
+        return path_km, (path_stretch(path_km, floor) if floor > 0 else np.nan)
+
+    def _gateway_imbalance(self, arrivals: np.ndarray, cap: np.ndarray, gw: slice) -> tuple[float, int]:
+        """Peak gateway utilisation over aggregate gateway utilisation.
+
+        Per gateway g: load_g = bits arriving on its feeder links this step (in
+        whichever direction traffic runs), capacity_g = its feeder capacity x
+        dt. Over gateways with any feeder capacity at all:
+
+            imbalance = max_g(load_g / capacity_g) / (sum load / sum capacity)
+
+        1 when every serving gateway is equally utilised; larger when load
+        piles onto some feeders while others idle. A topology cannot change
+        feeder capacity -- ground links are not selected -- so redistributing
+        load across gateways is the only gain available to it there. NaN when
+        no gateway carries load.
+        """
+        load = arrivals[gw, :].sum(axis=1) + arrivals[:, gw].sum(axis=0)
+        capacity = cap[gw, :].sum(axis=1) * self.dt
+        serving = capacity > 0
+        if load.sum() <= 0 or not serving.any():
+            return float("nan"), 0
+        util = load[serving] / capacity[serving]
+        aggregate = load.sum() / capacity[serving].sum()
+        return float(util.max() / aggregate), int((load > 0).sum())
 
     def run(self, linksets: list[LinkSet], offered: np.ndarray) -> list[dict]:
         self.backlog[:] = 0.0

@@ -36,6 +36,7 @@ from traffic import (
     diurnal_factor,
     expected_rate_bps,
     feeder_budget,
+    floor_matrix,
     gateway_access,
     load_sites,
     local_solar_hour,
@@ -58,6 +59,12 @@ PIN_DROPPED_STEP1 = 2.0e7
 PIN_BACKLOG_STEP1 = 1.0e8
 PIN_DELIVERED_STEP1 = 1.010097087378640776e9  # 1.03e9 * (1 - 1e7/1.03e9)^2
 PIN_PROP_S = 0.024  # 2 x 10 ms ISL + 2 x 2 ms access
+# Gateway imbalance by hand: two isolated satellites, gateway A on 0 and B on 1
+# at 4 Gbps each, a third gateway C that sees nothing. Cities offer 3e8 and 1e8
+# bits in a 1 s step. Utilisation A 0.075, B 0.025; aggregate over the serving
+# gateways 4e8 / 8e9 = 0.05; imbalance 0.075 / 0.05 = 1.5. C has no feeder
+# capacity and is excluded rather than dividing by zero.
+PIN_GW_IMBALANCE = 1.5
 PIN_CHURN_LOST = 3.0e7
 PIN_DROPPED_5S = 2.0e8
 PIN_KRISHNAN8 = ["GW-Los Angeles", "GW-London", "GW-Dubai", "GW-Tokyo", "GW-Singapore",
@@ -252,6 +259,22 @@ def check_no_ground_relay(chk: Checks, rcfg: RoutingConfig) -> None:
     )
 
 
+def check_gateway_imbalance(chk: Checks, rcfg: RoutingConfig) -> None:
+    section("Gateway load imbalance: closed form")
+    n = 2
+    zero = np.zeros((1, n, n))
+    ds = _synthetic(capacity=zero, latency=zero, distance=zero, visible=zero.astype(bool))
+    cities = [_sparse([[0]], 4.0e9, 0.002), _sparse([[1]], 4.0e9, 0.002)]
+    gws = [_sparse([[0]], 4.0e9, 0.002), _sparse([[1]], 4.0e9, 0.002), _sparse([[]], 4.0e9, 0.002)]
+    links = [LinkSet.empty(n, 0)]
+    skew = TrafficSim(ds, cities, gws, TrafficConfig(), rcfg).run(links, np.array([[3.0e8, 1.0e8]]))[0]
+    chk.close_to("imbalance = peak over aggregate feeder utilisation (3:1 load split)",
+                 skew["gateway_imbalance"], PIN_GW_IMBALANCE, 1e-12,
+                 extra=f"gateways loaded {skew['gateways_loaded']} (C sees no satellite)")
+    even = TrafficSim(ds, cities, gws, TrafficConfig(), rcfg).run(links, np.array([[2.0e8, 2.0e8]]))[0]
+    chk.close_to("discrimination: an even split scores exactly 1", even["gateway_imbalance"], 1.0, 1e-12)
+
+
 def check_gateways(chk: Checks, dataset, rcfg: RoutingConfig) -> None:
     """Gateway sites and the feeder link budget.
 
@@ -316,6 +339,10 @@ def check_real_run(chk: Checks, dataset, results: dict, sites, city_acc, gw_acc,
     na = {k: round(sum(r["no_access_bits"] for r in v), 3) for k, v in out.items()}
     chk.record("no-access demand is identical for every selector (a ground-segment property)",
                len(set(na.values())) == 1, f"{na}")
+    imb = [r["gateway_imbalance"] for rows in out.values() for r in rows if r["routed_bits"] > 0]
+    chk.record("gateway imbalance is defined and >= 1 wherever traffic is routed",
+               len(imb) > 0 and all(v >= 1.0 - 1e-12 for v in imb),
+               f"{len(imb)} selector-steps; range {min(imb):.3f} .. {max(imb):.3f}")
     routed = sum(r["routed_bits"] for r in out["Greedy"])
     total = sum(r["offered_bits"] for r in out["Greedy"])
     chk.record("the run is not vacuous: some demand is routed, some is not",
@@ -369,17 +396,70 @@ def check_real_run(chk: Checks, dataset, results: dict, sites, city_acc, gw_acc,
                f"t={picked}: {compared} city-timesteps compared, {mism} mismatches")
 
 
-def _dense(sp: SparseAccess, dataset):
+def check_stretch(chk: Checks, dataset, greedy: list, sites, city_acc, gw_acc, tcfg, rcfg, n_steps) -> None:
+    """Traffic-path stretch is stage 3's stretch factor, with the gateway the
+    city actually egressed through as the far end.
+
+    Cross-checked against stage 3's own ``shortest_path`` between the city and
+    that gateway, on every city-timestep where both pick the same satellite
+    sequence (hop ties can legitimately send them down different equal-cost
+    paths of different length; those are skipped, and counted)."""
+    section("Stretch factor on routed traffic paths")
+    floor = floor_matrix(sites.cities, sites.gateways)
+    sim = TrafficSim(dataset, city_acc, gw_acc, tcfg, rcfg, floor)
+    n, gw_base = dataset.n_sats, dataset.n_sats + len(city_acc)
+    ts = np.unique(np.linspace(0, n_steps - 1, 4).astype(int))
+    matched = mism = skipped = undefined = 0
+    worst = 0.0
+    vals = []
+    for t in ts:
+        for c, path in enumerate(sim.routes(greedy[t], t)):
+            if not path:
+                continue
+            _, s = sim._path_km_stretch(path, c, t)
+            if np.isnan(s):
+                undefined += 1
+                continue
+            vals.append(s)
+            g = path[0] - gw_base
+            ref = shortest_path(dataset, greedy[t],
+                                {"src": _dense(city_acc[c], dataset, sites.cities[c]),
+                                 "dst": _dense(gw_acc[g], dataset, sites.gateways[g])}, t, rcfg)
+            ours = [u for u in path if u < n][::-1]  # satellites, city -> gateway
+            theirs = [u for u in ref["path"] if u < n]
+            if ours != theirs:
+                skipped += 1
+                continue
+            matched += 1
+            err = abs(s / ref["stretch"] - 1.0)
+            worst = max(worst, err)
+            mism += err > 1e-9
+    chk.record("traffic stretch equals stage 3's stretch on the same path",
+               mism == 0 and matched >= 20,
+               f"{matched} city-timesteps matched (worst rel. error {worst:.1e}), "
+               f"{skipped} skipped on hop ties")
+    v = np.asarray(vals)
+    chk.record("discrimination: stretch varies and exceeds 1 (not a constant or the floor itself)",
+               len(v) > 0 and v.min() >= 1.0 and v.max() > 1.05 and v.std() > 0,
+               f"{len(v)} paths, stretch {v.min():.3f} .. {v.max():.3f}" if len(v) else "no paths")
+    chk.record("co-located city/gateway pairs are counted as undefined, not as stretch 1",
+               undefined > 0, f"{undefined} city-timesteps with a city on its gateway's coordinates")
+
+
+def _dense(sp: SparseAccess, dataset, station=None):
     """Rebuild a stage-3 GroundAccess from the sparse form, for cross-checking."""
     from routing.stations import GroundAccess, GroundStation
     t_n, n = dataset.n_steps, dataset.n_sats
     vis = np.zeros((t_n, n), dtype=bool)
     cap = np.zeros((t_n, n))
     lat = np.zeros((t_n, n))
+    dist = np.zeros((t_n, n))
     for t in range(t_n):
         s, c, l = sp.at(t)
         vis[t, s], cap[t, s], lat[t, s] = True, c, l
-    return GroundAccess(GroundStation("x", 0.0, 0.0), vis, np.zeros((t_n, n)), np.zeros((t_n, n)), cap, lat)
+        if sp.distance_km is not None:
+            dist[t, s] = sp.distance_km[sp.indptr[t]:sp.indptr[t + 1]]
+    return GroundAccess(station or GroundStation("x", 0.0, 0.0), vis, dist, np.zeros((t_n, n)), cap, lat)
 
 
 def main() -> int:
@@ -402,6 +482,7 @@ def main() -> int:
     check_demand(chk, tcfg_traffic)
     check_queues(chk, rcfg)
     check_no_ground_relay(chk, rcfg)
+    check_gateway_imbalance(chk, rcfg)
 
     cfg = SimConfig(
         step_s=args.step,
@@ -422,6 +503,7 @@ def main() -> int:
     gw_acc = [gateway_access(dataset, s, rcfg, tcfg_traffic, times) for s in sites.gateways]
     check_gateways(chk, dataset, rcfg)
     check_real_run(chk, dataset, results, sites, city_acc, gw_acc, tcfg_traffic, rcfg, n_steps)
+    check_stretch(chk, dataset, results["Greedy"], sites, city_acc, gw_acc, tcfg_traffic, rcfg, n_steps)
     return chk.summarise()
 
 
