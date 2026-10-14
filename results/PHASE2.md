@@ -5,9 +5,11 @@ gateways are, where the demand is) and asks whether they move delivered throughp
 delay, loss, stretch or gateway load balance under offered load.
 
 **This is a minimum-viable evaluation: one constellation slice, one time window, one
-seed, untuned weights.** It is not a study, and by this project's own rule (CLAUDE.md:
-no extension result is reportable without a demand-perturbation run) **none of the
-numbers below is reportable yet.** They say whether there is anything worth studying.
+seed, untuned weights.** It is not a study. The demand-perturbation run CLAUDE.md
+requires before any extension result is reported is now done (§4.6), and so is a 1 s
+check of the 5 s step at a saturated load (§4.5). The numbers say whether there is
+anything worth studying; with one traffic seed and one window they are still not a
+claim of improvement.
 
 Every number comes from `results/phase2/`; `report.txt` is the full output of
 `report_phase2.py`, which only reads what `TrafficSim` wrote.
@@ -31,8 +33,16 @@ satellites.**
   gain present only in the combination, with both components negative, is what
   perturbing the topology at random would also look like. With one seed it cannot be
   attributed to the terms.
+- **The Greedy gain needs a near-perfect forecast** (§4.6). With the predictor's
+  per-city demand off by a lognormal factor of sd 0.5 (×/÷1.65) it is intact; at sd 1
+  (×/÷2.7) its mean roughly halves and goes negative on some noise seeds; at sd 2 it is
+  negative from 3.5 Gbps. Changing only the noise seed moves delivery by up to
+  2 points, three times the gain itself.
+- **The 5 s step did not create the Greedy gain** (§4.5): at 3.5 Gbps and 1 s it is
+  +0.72 points against +0.69 at 5 s.
 - **DoTD-forward + both terms is slightly worse** than DoTD-forward from 3.5 Gbps up
-  (−0.1 to −0.4 points).
+  (−0.1 to −0.4 points). At 1 s and 3.5 Gbps the sign flips (+0.25), so the DoTD-forward
+  change is inside step-size noise either way.
 - **Stretch and path length: no meaningful change** (−0.2% stretch, +0.1% path km).
 - The largest difference on the page is not the extension at all: **Greedy (terms off)
   beats DoTD-forward (terms off) by 2.4 points at 5 Gbps** (0.904 vs 0.880).
@@ -43,7 +53,7 @@ satellites.**
 |---|---|
 | constellation | 187 satellites, 10 real planes of the 70° shell (Phase 1 default) |
 | window | the default 30 min (360 steps at 5 s), start 2026-08-20 (median TLE epoch) |
-| step | **5 s** (1 s would take ~5× longer; see §6) |
+| step | **5 s** (1 s would take ~5× longer); one 1 s check at 3.5 Gbps, §4.5 |
 | seed | 7 |
 | feeder | stage-1 budget, 12.2 GHz / 100 MHz (the default, where feeders bind) |
 | gateways | `populous20`; 7 of the 20 never see a satellite in this slice (Cairo, Moscow, Kinshasa, Istanbul, Lagos, Johannesburg, Sydney) |
@@ -167,6 +177,63 @@ length is reported beside it for that reason. 12.5% of routed demand has no stre
 at all (a city on its gateway's coordinates; `populous20` puts every gateway on a
 city) and is counted apart, not as 1.
 
+### 4.5 Step size at saturation: 1 s vs 5 s, 3.5 Gbps
+
+3.5 Gbps is where the terms' effect peaks (Greedy +0.69 in §4.1). The spread between
+all configurations keeps growing to 5 Gbps, but that spread is mostly Greedy vs
+DoTD-forward, not the terms. Greedy and DoTD-forward, terms off and both on, seed 7,
+same window (1800 steps at 1 s). Output in `results/phase2/step1/`.
+
+| | off, 1 s | both, 1 s | Δ at 1 s | Δ at 5 s |
+|---|---|---|---|---|
+| Greedy | 0.9781 | 0.9853 | +0.72 | +0.69 |
+| DoTD-forward | 0.9695 | 0.9720 | +0.25 | −0.11 |
+
+The Greedy gain is the same at 1 s, so the coarser step did not create it. The
+DoTD-forward change flips sign between steps, so it is inside step-size noise. The
+terms-off levels agree with 5 s to within 0.06 points (Greedy 0.9781 vs 0.9787,
+DoTD-forward 0.9695 vs 0.9696).
+
+### 4.6 Demand perturbation: the gain against forecast error
+
+The congestion term's predictor normally uses exactly the evaluator's demand model,
+which is the best case for the extension. Here each city's *predicted* rate is
+multiplied by a fixed, mean-one lognormal factor `exp(sd·z − sd²/2)`, z ~ N(0, 1) per
+city and constant in time: a market-size mis-estimate
+(`TrafficConfig.predict_rate_noise_sd`). The evaluator's offered load does not change
+(checked in `validate_extension.py`). Egress is geometry and does not change either, so
+this tests the congestion term's information. Both terms on (0.2 / 0.2), 5 s step,
+traffic seed 7, noise seeds 1–3. Output in `results/phase2/robust/` (`summarise.py`,
+`gain_vs_noise.csv`).
+
+Delivered, both terms minus terms off (points), mean [min, max] over noise seeds:
+
+| Greedy | 3.0 | 3.5 | 4.0 | 4.5 | 5.0 |
+|---|---|---|---|---|---|
+| sd 0 (perfect) | +0.58 | +0.69 | +0.67 | +0.51 | +0.43 |
+| sd 0.5 (×/÷1.65) | +0.58 [0.57, 0.58] | +0.68 [0.66, 0.70] | +0.66 [0.64, 0.69] | +0.50 [0.47, 0.54] | +0.41 [0.36, 0.46] |
+| sd 1 (×/÷2.7) | +0.50 [0.35, 0.58] | +0.36 [−0.23, 0.66] | +0.21 [−0.62, 0.64] | −0.06 [−1.08, 0.49] | −0.26 [−1.50, 0.41] |
+| sd 2 (×/÷7.4) | +0.21 [0.07, 0.34] | −0.05 [−0.52, 0.39] | −0.19 [−0.94, 0.46] | −0.37 [−1.28, 0.50] | −0.46 [−1.54, 0.65] |
+
+| DoTD-forward | 3.0 | 3.5 | 4.0 | 4.5 | 5.0 |
+|---|---|---|---|---|---|
+| sd 0 (perfect) | +0.26 | −0.11 | −0.28 | −0.43 | −0.41 |
+| sd 0.5 | +0.21 [0.10, 0.26] | −0.18 [−0.31, −0.11] | −0.34 [−0.46, −0.28] | −0.50 [−0.63, −0.43] | −0.48 [−0.62, −0.41] |
+| sd 1 | +0.25 [0.25, 0.26] | −0.13 [−0.15, −0.11] | −0.30 [−0.33, −0.26] | −0.50 [−0.59, −0.42] | −0.54 [−0.71, −0.41] |
+| sd 2 | +0.10 [−0.13, 0.25] | −0.26 [−0.60, −0.02] | −0.45 [−0.85, −0.17] | −0.74 [−1.28, −0.46] | −0.87 [−1.52, −0.49] |
+
+- **Dependence on forecast error:** the Greedy gain holds at sd 0.5, roughly halves
+  and can turn negative at sd 1, and is gone or negative from 3.5 Gbps at sd 2.
+  DoTD-forward only gets worse as the error grows.
+- **Spread between noise seeds:** at sd ≥ 1, changing only the noise seed moves
+  delivery by up to 2 points, about three times the gain. That spread mixes the
+  forecast being wrong with the selection simply being disturbed; the two are not
+  separated here. Either way it shows that disturbing the topology at this scale moves
+  delivery by more than the 0.7 points in §4.1.
+- **What can be stated:** Greedy + both terms gains 0.4–0.7 points with a forecast
+  correct to within ×/÷1.65 per city, and nothing at ×/÷2.7, on one traffic seed, one
+  window and untuned weights. DoTD-forward does not gain at any error level.
+
 ## 5. What didn't work, and why
 
 1. **Neither term targets the binding constraint.** At 187 satellites loss comes from
@@ -211,14 +278,15 @@ Stated plainly; each one bounds what §4 can mean.
   measured. The timestep-paired counts in §4.1 are within-run evidence only.
 - **Weights untuned.** One value, 0.2 / 0.2, chosen for the reasons in §2. A different
   weight could do better or worse; nothing here says which.
-- **Perfect forecast.** The congestion term's predictor uses exactly the demand model
-  the evaluator draws from (population × the same diurnal curve), so any gain it
-  showed would be an upper bound. It showed none; congestion alone lost. The
-  demand-perturbation run CLAUDE.md requires was not done.
+- **Forecast error tested one way only.** §4.6 perturbs population (a fixed per-city
+  factor). A shifted diurnal peak or a different trough ratio, which would move the
+  error in time rather than between cities, was not run. Three noise seeds per level
+  is enough to show the spread, not to estimate it.
 - **5 s step.** Checked against 1 s at 1 and 2 Gbps, 3 seeds, terms off: scored
   selectors agree within 0.03 ms mean delay and ~0.1 imbalance, delivery identical
-  (`results/traffic/p10` vs `p10_step5`). That check is all below saturation; whether
-  the coarser step shifts results where queues overflow was not checked.
+  (`results/traffic/p10` vs `p10_step5`). At saturation it was checked at one load
+  (3.5 Gbps, §4.5): the Greedy gain holds, the DoTD-forward change flips sign. Other
+  loads above saturation are 5 s only.
 - **One feeder configuration.** The sourced 2.1 GHz feeder was not run; with it,
   feeders probably stop binding below 5 Gbps and the ISLs would become the
   constraint, which is where a topology term has more to work with.
@@ -230,7 +298,8 @@ In order of how much each would change the conclusion:
 1. A gateway-load-aware term (predicted per-gateway demand against feeder capacity),
    since §5.1 is the mechanism by which these terms cannot help.
 2. Seeds and windows on the existing configurations, to put an error bar on the
-   ±0.7-point differences in §4.1 before believing any of them.
+   ±0.7-point differences in §4.1 before believing any of them. §4.6 already shows
+   that a small change in the selection moves delivery by up to 2 points.
 3. The 2.1 GHz feeder, where the ISLs bind instead of the feeders.
 4. 601 satellites on a machine with more memory, or a sparse-backlog `TrafficSim`
    (the dense M×M arrays are ~5 MB each at 821 nodes and are not the memory
@@ -249,7 +318,16 @@ In order of how much each would change the conclusion:
   gateway). Both killed. The full mutation sweep was not re-run.
 - `run_traffic.py`: `--selectors`; rows written as each run finishes, with resume;
   non-default step in the filename; per-gateway shares to `*_gateways.csv`.
-- `report_phase2.py`: the tables above.
+- `report_phase2.py`: the tables in §4.1–4.4.
+- `traffic/config.py`, `traffic/predict.py`, `run_traffic.py`: predictor-only demand
+  error (`predict_rate_noise_sd`, `predict_noise_seed`; `--predict-noise-sd`,
+  `--predict-noise-seed`), for §4.6. When the error is on, it is stamped in the ground
+  label and the output filename.
+- `validate_extension.py`: 2 checks. The noise perturbs demand but not egress and
+  repeats per seed; it never reaches the evaluator's `expected_rate_bps`. Suite 65/65
+  (61/61 at `--steps 300`), `results/phase2/validate_extension.log`.
+- `mutants.py`: X21 (noise silently dropped). Killed by the first check above,
+  `results/phase2/mutant_X21.log`. The full sweep was not re-run.
 
 ## Reproduce
 
@@ -261,6 +339,19 @@ $C --selectors Greedy DoTD-forward --w-egress 0.2 --w-congestion 0.2
 $C --selectors Greedy --w-egress 0.2
 $C --selectors Greedy --w-congestion 0.2
 python report_phase2.py > $O/report.txt
+
+# §4.5: 1 s at 3.5 Gbps (the terms-on run also wrote the All-visible reference)
+S="python run_traffic.py --step 1 --loads 3.5 --seeds 7 --selectors Greedy DoTD-forward --out $O/step1"
+$S
+$S --w-egress 0.2 --w-congestion 0.2
+
+# §4.6: demand perturbation
+for sd in 0.5 1 2; do for s in 1 2 3; do
+  python run_traffic.py --step 5 --loads 3 3.5 4 4.5 5 --seeds 7 --selectors Greedy DoTD-forward \
+    --w-egress 0.2 --w-congestion 0.2 --predict-noise-sd $sd --predict-noise-seed $s --out $O/robust
+done; done
+python $O/robust/summarise.py
 ```
 
-About 15 minutes in total on this machine.
+About 15 minutes for the §4.1 sweep and 3–4 minutes for each 1 s run. The nine
+perturbation runs were run in parallel and took a few minutes in total.

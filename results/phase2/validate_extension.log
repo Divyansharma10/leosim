@@ -1,0 +1,183 @@
+========================================================================
+  LEO CONSTELLATION SIMULATOR -- PHASE 2 EXTENSION VALIDATION
+  probe weight 0.2 (validation only; nothing is tuned)
+========================================================================
+
+--- Configuration: defaults, labels, refusals ---------------------------
+  [PASS] both extension weights default to 0
+         w_egress=0.0, w_congestion=0.0
+  [PASS] default variant label and file tag are Phase 1's, character for character
+         label 'objective=max, latency=d_over_c, lookahead=forward, grid_gaps=strict'
+         file tag 'max_d_over_c'
+  [PASS] an active extension weight appears in the label and the file tag
+         label 'objective=max, latency=d_over_c, lookahead=forward, grid_gaps=strict, w_egress=0.3, w_congestion=0'
+         file tag 'max_d_over_c_egress0.3_cong0'
+  [PASS] a nonzero weight with no GroundPrediction is refused
+         ValueError: w_egress=0.0, w_congestion=0.1 need a GroundPrediction; none was given
+  [PASS] a GroundPrediction of the wrong shape is refused
+         ValueError: GroundPrediction is (3, 4), dataset is (2, 4)
+  [PASS] a negative extension weight is refused
+         ValueError: w_egress must be >= 0
+
+--- Score arithmetic: hand-checkable pins -------------------------------
+  [PASS] link_score + ground_score, egress [0.4, 0.8], demand [0.2, 0.6]
+         measured 1.35, pinned 1.35, relative error 0.00e+00 (tolerance 1e-12)
+         0.80 + 0.5*max(0.4, 0.8) + 0.25*(1 - mean(0.2, 0.6)) = 0.80 + 0.40 + 0.15
+  [PASS] end-to-end score with both terms, pair (0,2), t=0
+         measured 0.9125, pinned 0.9125, relative error 1.22e-16 (tolerance 1e-12)
+         0.60 + 0.5*0.25 + 0.25*(1 - 0.25)
+  [PASS] end-to-end score with both terms, pair (0,2), t=1 (running maxima)
+         measured 0.9625, pinned 0.9625, relative error 1.15e-16 (tolerance 1e-12)
+         0.65 + 0.125 + 0.1875; a per-timestep max would give 1.275
+
+--- Predictor by hand: best gateway, equal demand split -----------------
+  [PASS] predicted demand: each city split equally over the satellites it sees
+         got [[375000000.0, 625000000.0, 0.0], [0.0, 750000000.0, 0.0]]
+         pinned [[375000000.0, 625000000.0, 0.0], [0.0, 750000000.0, 0.0]]
+  [PASS] predicted egress: each satellite's best gateway, 0 where it sees none
+         got [[0.0, 2000000000.0, 3000000000.0], [500000000.0, 0.0, 0.0]]
+         pinned [[0.0, 2000000000.0, 3000000000.0], [500000000.0, 0.0, 0.0]]
+  [PASS] predictor noise: perturbs demand, leaves egress, reproducible per seed
+         seed 1 demand [[393357206.721, 726066790.811, 0.0], [0.0, 786714413.442, 0.0]], seed 2 [[363744870.572, 533623917.833, 0.0], [0.0, 727489741.145, 0.0]]
+  [PASS] predictor noise never reaches the evaluator's demand
+         expected_rate_bps identical with and without predict_rate_noise_sd
+
+--- Each term points the right way (synthetic, all else equal) ----------
+  [PASS] discrimination: with no ground terms, the tie-break takes (0,1)
+         edges [(0, 1)]
+  [PASS] egress: a neighbour with a gateway in view scores higher than an identical one without
+         score (0,1) no gateway 0.400000; (0,2) gateway 0.600000
+  [PASS] egress: ... and is the one selected
+         edges [(0, 2)]
+  [PASS] congestion: a neighbour under demand scores lower than an identical idle one
+         score (0,1) loaded 0.500000; (0,2) idle 0.600000; edges [(0, 2)]
+  [PASS] congestion: score falls strictly as the neighbour's demand rises
+         score (0,1) at demand 0, 0.25, 0.5, 1 Gbps: [0.6, 0.575, 0.55, 0.5]
+  [PASS] egress horizon: Greedy, blind to the gateway arriving at t=5, keeps the tie-break
+         Greedy edges [(0, 1)]
+  [PASS] egress horizon: forward DoTD anticipates it and takes (0,2)
+         DoTD-forward edges [(0, 2)]
+  [PASS] egress horizon: an occluded future link gets egress credit only while visible
+         measured 0.1426449666, pinned 0.1426449666, relative error 0.00e+00 (tolerance 1e-12)
+         visible at offset 0 only: 1 / sum_{h=0}^{10} exp(-h/10)
+  [PASS] forward term = geometric part + w_egress x egress part (w_egress = 0.5)
+         measured 0.1426449666, pinned 0.1426449666, relative error 0.00e+00 (tolerance 1e-12)
+         0.4/0.8 * P + 0.5 * P = P; unweighted egress would give 1.5 P
+  [PASS] a future egress or demand at twice the running max normalises to 1, not above
+         egress -> 1.0, demand -> 1.0
+  [PASS] egress forward weight falls strictly with offset (near future weighted most)
+         egress part at offsets [1, 5, 10, 15, 20]: [0.071365, 0.058429, 0.045505, 0.035439, 0.0276]
+[cache] hit C:\Users\divya\leosim\cache\54a1268e38b278ba
+  ground: mask=25deg, gateways=populous20, feeder=stage1, demand=expected population x diurnal (perfect forecast), split=equal
+
+--- Regression guard: weights 0 reproduce Phase 1 exactly ---------------
+  [PASS] +Grid: first 300 steps match the pre-extension recording
+         adjacency f4ed656f1bbb547d.. (pinned f4ed656f1bbb547d..)
+  [PASS] +Grid: first 1800 steps match the pre-extension recording
+         adjacency a184a2d67c17ff78.. (pinned a184a2d67c17ff78..)
+  [PASS] Greedy: first 300 steps match the pre-extension recording
+         adjacency af0b1a9517ec3e6a.. (pinned af0b1a9517ec3e6a..)
+         priority  efe8893dd825a5a7.. (pinned efe8893dd825a5a7..)
+  [PASS] Greedy: first 1800 steps match the pre-extension recording
+         adjacency 6ed43da6ade256ad.. (pinned 6ed43da6ade256ad..)
+         priority  4f84820bb8bfdad2.. (pinned 4f84820bb8bfdad2..)
+  [PASS] DoTD-forward: first 300 steps match the pre-extension recording
+         adjacency 426c8a0850b101c6.. (pinned 426c8a0850b101c6..)
+         priority  e6666d8720586897.. (pinned e6666d8720586897..)
+  [PASS] DoTD-forward: first 1800 steps match the pre-extension recording
+         adjacency b6026e9ef4feebb3.. (pinned b6026e9ef4feebb3..)
+         priority  1a83988ff55ad93f.. (pinned 1a83988ff55ad93f..)
+  [PASS] DoTD-backward: first 300 steps match the pre-extension recording
+         adjacency 05f3eb04124a2691.. (pinned 05f3eb04124a2691..)
+         priority  681f694aec0291e2.. (pinned 681f694aec0291e2..)
+  [PASS] DoTD-backward: first 1800 steps match the pre-extension recording
+         adjacency da4db45cbb8dba08.. (pinned da4db45cbb8dba08..)
+         priority  a46c7bf957f52799.. (pinned a46c7bf957f52799..)
+  [PASS] Greedy: a GroundPrediction at weight 0 changes nothing, bit for bit
+         adjacency, priority and score hashes over 1800 steps equal
+  [PASS] DoTD-forward: a GroundPrediction at weight 0 changes nothing, bit for bit
+         adjacency, priority and score hashes over 1800 steps equal
+  [PASS] DoTD-backward: a GroundPrediction at weight 0 changes nothing, bit for bit
+         adjacency, priority and score hashes over 1800 steps equal
+
+--- Each term changes the topology, and the two differ ------------------
+  [PASS] Greedy: the egress term alone changes the topology
+         measured 1, required 0.01..1
+         fraction of 1800 timesteps that differ from Phase 1 (probe weight 0.2)
+  [PASS] Greedy: the congestion term alone changes the topology
+         measured 1, required 0.01..1
+         fraction of 1800 timesteps that differ from Phase 1 (probe weight 0.2)
+  [PASS] Greedy: egress-only and congestion-only topologies differ from each other
+         measured 1, required 0.01..1
+         fraction of 1800 timesteps
+  [PASS] Greedy: discrimination -- both weights on over all-zero predictions change nothing
+         0 of 1800 timesteps differ
+  [PASS] DoTD-forward: the egress term alone changes the topology
+         measured 1, required 0.01..1
+         fraction of 1800 timesteps that differ from Phase 1 (probe weight 0.2)
+  [PASS] DoTD-forward: the congestion term alone changes the topology
+         measured 1, required 0.01..1
+         fraction of 1800 timesteps that differ from Phase 1 (probe weight 0.2)
+  [PASS] DoTD-forward: egress-only and congestion-only topologies differ from each other
+         measured 1, required 0.01..1
+         fraction of 1800 timesteps
+  [PASS] DoTD-forward: discrimination -- both weights on over all-zero predictions change nothing
+         0 of 1800 timesteps differ
+  [PASS] DoTD-backward: all-zero predictions change nothing (accumulator ignores the new terms)
+         0 of 1800 timesteps differ
+
+--- Bounds with the terms on --------------------------------------------
+  [PASS] Greedy, both terms: priority symmetric at every timestep
+         1800 timesteps
+  [PASS] DoTD-forward, both terms: priority symmetric at every timestep
+         1800 timesteps
+  [PASS] DoTD-backward, both terms: priority symmetric at every timestep
+         1800 timesteps
+  [PASS] DoTD-backward, both terms: backward accumulation stays within [0, 1]
+         range 0.0011 .. 0.8499
+  [PASS] egress forward part stays within [0, 1] over the real shell
+         largest over 1800 timesteps: 0.995996
+  [PASS] clip check discriminates: future egress does exceed the causal max here
+         155 of 1800 timesteps have a sample above the running max
+
+--- Ground running maxima: monotone, causal, live from t=0 --------------
+  [PASS] running max egress non-decreasing at every step
+         0 decreases; range 1.04404e+09 -> 1.06076e+09
+  [PASS] running max egress at t equals the max over [0, t] (causal)
+         worst relative mismatch 0.00e+00 over 10 checkpoints
+  [PASS] egress monotonicity check discriminates: per-timestep max does decrease
+         per-timestep max decreases at 923 of 1799 steps
+  [PASS] running max demand non-decreasing at every step
+         0 decreases; range 2.32209e+08 -> 4.56399e+08
+  [PASS] running max demand at t equals the max over [0, t] (causal)
+         worst relative mismatch 0.00e+00 over 10 checkpoints
+  [PASS] demand monotonicity check discriminates: per-timestep max does decrease
+         per-timestep max decreases at 1323 of 1799 steps
+  [PASS] egress term is live from t=0: some satellite sees a gateway at the first step
+         max egress at t=0 1.044 Gbps
+
+--- Predictor on the real shell: conservation, coverage, open loop ------
+  [PASS] demand is conserved: per step, satellites receive exactly what visible cities offer
+         worst relative mismatch 3.99e-16 over 1800 steps
+  [PASS] egress is positive exactly where some gateway sees the satellite
+         0 mismatches over 1800 steps x 187 satellites
+  [PASS] open loop: the prediction is identical for every traffic seed
+         seeds (7, 8)
+  [PASS] seed check discriminates: the realised demand does differ between those seeds
+         seeds (7, 8)
+  [PASS] normalised demand does not depend on the offered-load level
+         loads (1.0, 4.0) Gbps: raw demand differs, normalised max |diff| 0.00e+00
+  [PASS] open loop: the predictor never touches TrafficSim, offered_bits or backlog
+         found none in traffic/predict.py
+  [PASS] scan discriminates: it does find those names in run_traffic.py
+         found ['TrafficSim', 'offered_bits']
+  [PASS] the topology package does not import the traffic layer
+         importing modules: none
+
+--- Reported, not checked: links with a gateway in view at both ends ----
+  Greedy         Phase 1 0.0304   egress probe 0.0305
+  DoTD-forward   Phase 1 0.0321   egress probe 0.0322
+
+========================================================================
+  65/65 checks passed
+========================================================================

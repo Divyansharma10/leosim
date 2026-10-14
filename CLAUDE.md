@@ -31,9 +31,9 @@ python validate_routing.py         # stage 3: 44 checks (--steps 300 for a fast 
 python run_traffic.py --loads 0.5 1 2 5   # stage 4: every selector under offered load
 python validate_traffic.py         # stage 4: 34 checks (--steps 300 for a fast pass)
 
-python validate_extension.py       # Phase 2 extension: 63 checks (59 at --steps 300)
+python validate_extension.py       # Phase 2 extension: 65 checks (61 at --steps 300)
 
-python mutants.py                  # meta-test: 101-mutation sweep, stages 2-4 + extension
+python mutants.py                  # meta-test: 102-mutation sweep, stages 2-4 + extension
 python mutants.py T01 T02          # just the named mutants
 ```
 
@@ -190,7 +190,8 @@ apart and beyond the range cap. The suite now asserts stage 1 and stage 2 resolv
 one-for-one, which is what catches that.
 
 Stage 1 is validated (29/29), stage 2 (96/96), stage 3 (44/44), stage 4 (34/34) and
-the Phase 2 extension (63/63), with 99/101 mutants killed, the 2 documented equivalents surviving and 0 unexpected.
+the Phase 2 extension (65/65), with 99/101 mutants killed, the 2 documented equivalents surviving and 0 unexpected,
+in the last full sweep; X21 (added after it) was run alone and killed.
 
 **At 34 planes (601 sats) checks fail on purpose**, all of them findings; do not
 weaken any. See `results/scale/NOTES.md`.

@@ -1,0 +1,22 @@
+[cache] hit C:\Users\divya\leosim\cache\a527d90194e539f7
+[variant] objective=max, latency=d_over_c, lookahead=forward, grid_gaps=strict, w_egress=0.2, w_congestion=0.2 | metric=hop, mask=25deg, access=all | load=2Gbps, direction=to_user, gateways=populous20, feeder=stage1, buffer=50ms
+[access] 200 cities, 20 gateways in 4s; gateway feeder capacity per gateway: mean 0.89 Gbps (range 0.00-1.66), total 17.7 Gbps
+[ground] ground: mask=25deg, gateways=populous20, feeder=stage1, demand=expected population x diurnal x lognormal(sd=2, seed=1) per city, split=equal
+[topology] 2 selectors x 360 steps in 14s
+  load     3 seed 7  Greedy                 delivered 0.9944  delay   11.3 ms  p95   14.0 ms  (19s)
+  load     3 seed 7  DoTD-forward           delivered 0.9919  delay   12.2 ms  p95   13.2 ms  (17s)
+  load     3 seed 7  All-visible (reference) delivered 0.9990  delay   10.0 ms  p95   18.9 ms  (17s)
+  load   3.5 seed 7  Greedy                 delivered 0.9786  delay   16.1 ms  p95   16.2 ms  (16s)
+  load   3.5 seed 7  DoTD-forward           delivered 0.9694  delay   18.9 ms  p95   22.0 ms  (16s)
+  load   3.5 seed 7  All-visible (reference) delivered 0.9912  delay   14.2 ms  p95   19.7 ms  (17s)
+  load     4 seed 7  Greedy                 delivered 0.9557  delay   20.6 ms  p95   56.9 ms  (17s)
+  load     4 seed 7  DoTD-forward           delivered 0.9403  delay   23.7 ms  p95   57.3 ms  (16s)
+  load     4 seed 7  All-visible (reference) delivered 0.9734  delay   18.3 ms  p95   21.4 ms  (18s)
+  load   4.5 seed 7  Greedy                 delivered 0.9274  delay   24.5 ms  p95   57.2 ms  (17s)
+  load   4.5 seed 7  DoTD-forward           delivered 0.9062  delay   27.5 ms  p95   57.7 ms  (16s)
+  load   4.5 seed 7  All-visible (reference) delivered 0.9501  delay   22.4 ms  p95   56.9 ms  (12s)
+  load     5 seed 7  Greedy                 delivered 0.8993  delay   26.9 ms  p95   57.3 ms  (12s)
+  load     5 seed 7  DoTD-forward           delivered 0.8742  delay   29.6 ms  p95   59.6 ms  (12s)
+  load     5 seed 7  All-visible (reference) delivered 0.9256  delay   25.6 ms  p95   57.0 ms  (12s)
+
+[out] results\phase2\robust\traffic_187sats_max_d_over_c_egress0.2_cong0.2_hop_populous20_feeder-stage1_step5_prednoise2-s1.csv (+ _steps.csv.gz)

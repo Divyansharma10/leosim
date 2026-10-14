@@ -1,0 +1,9 @@
+Baseline: unmutated suite must pass (validate_extension.py --steps 300)
+  baseline passed in 55s
+
+X21 KILLED             58s  traffic/predict.py     predictor noise silently dropped (robustness run would be a perfect forecast)
+     -> predictor noise: perturbs demand, leaves egress, reproducible per seed
+
+========================================================================
+  1/1 killed; 0 survived as believed-equivalent; 0 UNEXPECTED survivors; 0 invalid
+========================================================================
