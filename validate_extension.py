@@ -340,6 +340,25 @@ def check_predictor_pin(chk: Checks) -> None:
                np.array_equal(g.egress_bps, PIN_PRED_EGRESS),
                f"got {g.egress_bps.tolist()}\npinned {PIN_PRED_EGRESS.tolist()}")
 
+    # Predictor error (the robustness run): reaches the prediction's demand,
+    # not its egress, and never the evaluator's offered load.
+    def noisy(seed: int):
+        cfg = dataclasses.replace(tr, predict_rate_noise_sd=0.5, predict_noise_seed=seed)
+        return cfg, predict_ground(sites, cities, gws, np.array([0.0, 1.0]), 3, cfg, RoutingConfig())
+    cfg1, n1 = noisy(1)
+    _, n1b = noisy(1)
+    _, n2 = noisy(2)
+    hours = np.array([0.0, 1.0])
+    chk.record("predictor noise: perturbs demand, leaves egress, reproducible per seed",
+               np.array_equal(n1.egress_bps, PIN_PRED_EGRESS)
+               and not np.allclose(n1.demand_bps, PIN_PRED_DEMAND)
+               and np.array_equal(n1.demand_bps, n1b.demand_bps)
+               and not np.array_equal(n1.demand_bps, n2.demand_bps),
+               f"seed 1 demand {n1.demand_bps.round(3).tolist()}, seed 2 {n2.demand_bps.round(3).tolist()}")
+    chk.record("predictor noise never reaches the evaluator's demand",
+               np.array_equal(expected_rate_bps(sites, hours, cfg1), expected_rate_bps(sites, hours, tr)),
+               "expected_rate_bps identical with and without predict_rate_noise_sd")
+
 
 def check_direction(chk: Checks, vcfg: ExtensionValidationConfig) -> None:
     section("Each term points the right way (synthetic, all else equal)")

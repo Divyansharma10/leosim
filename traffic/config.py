@@ -105,6 +105,17 @@ class TrafficConfig:
 
     direction: TrafficDirection = "to_user"
 
+    # --- predictor error (Phase 2 robustness) ----------------------------------
+    # Read ONLY by traffic.predict.predict_ground, never by the evaluator: the
+    # offered load stays the true model, the prediction the extension scores
+    # against drifts from it. Each city's predicted rate is multiplied by a
+    # fixed, mean-one lognormal factor exp(sd*z - sd^2/2), z ~ N(0, 1) per city,
+    # constant over time -- a population (market-size) mis-estimate. 0 = the
+    # perfect forecast. Only the congestion term reads demand, so this tests
+    # that term alone; egress is geometry and is untouched.
+    predict_rate_noise_sd: float = 0.0
+    predict_noise_seed: int = 0
+
     # --- queues --------------------------------------------------------------
     # Buffer per directed link, as seconds of that link's capacity. Arrivals
     # beyond it are dropped. ASSUMED: 50 ms is a common rule-of-thumb buffer.
@@ -119,6 +130,8 @@ class TrafficConfig:
             raise ValueError("mean_flow_bits and buffer_s must be > 0")
         if self.n_gateways < 1:
             raise ValueError("n_gateways must be >= 1")
+        if self.predict_rate_noise_sd < 0:
+            raise ValueError("predict_rate_noise_sd must be >= 0")
 
     @property
     def variant_label(self) -> str:

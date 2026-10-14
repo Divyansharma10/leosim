@@ -64,6 +64,11 @@ def predict_ground(
         np.maximum.at(egress, (tt, acc.sat), acc.capacity)
 
     rate = expected_rate_bps(sites, np.asarray(utc_hours, dtype=np.float64), tcfg)  # (T, C)
+    sd = tcfg.predict_rate_noise_sd
+    if sd > 0:
+        # Predictor error only; the evaluator never sees this (TrafficConfig).
+        z = np.random.default_rng(tcfg.predict_noise_seed).standard_normal(rate.shape[1])
+        rate = rate * np.exp(sd * z - 0.5 * sd * sd)[None, :]
     demand = np.zeros((n_t, n_sats))
     for c, acc in enumerate(city_access):
         k = np.diff(acc.indptr)
@@ -72,7 +77,9 @@ def predict_ground(
 
     label = (
         f"ground: mask={rcfg.min_elevation_deg:g}deg, {tcfg.gateway_label}, "
-        "demand=expected population x diurnal (perfect forecast), split=equal"
+        + ("demand=expected population x diurnal (perfect forecast), split=equal" if sd == 0 else
+           f"demand=expected population x diurnal x lognormal(sd={sd:g}, seed={tcfg.predict_noise_seed}) "
+           "per city, split=equal")
     )
     return GroundPrediction(egress_bps=egress, demand_bps=demand, label=label)
 

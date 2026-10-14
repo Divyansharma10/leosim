@@ -1,0 +1,9 @@
+[cache] hit C:\Users\divya\leosim\cache\54a1268e38b278ba
+[variant] objective=max, latency=d_over_c, lookahead=forward, grid_gaps=strict | metric=hop, mask=25deg, access=all | load=2Gbps, direction=to_user, gateways=populous20, feeder=stage1, buffer=50ms
+[access] 200 cities, 20 gateways in 20s; gateway feeder capacity per gateway: mean 0.88 Gbps (range 0.00-1.66), total 17.7 Gbps
+[ground] none
+[topology] 2 selectors x 1800 steps in 81s
+  load   3.5 seed 7  Greedy                 delivered 0.9781  delay   15.4 ms  p95   15.8 ms  (82s)
+  load   3.5 seed 7  DoTD-forward           delivered 0.9695  delay   17.8 ms  p95   14.8 ms  (81s)
+
+[out] results\phase2\step1\traffic_187sats_max_d_over_c_hop_populous20_feeder-stage1.csv (+ _steps.csv.gz)

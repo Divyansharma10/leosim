@@ -125,6 +125,9 @@ def main() -> int:
     p.add_argument("--feeder-bandwidth-hz", type=float, default=None)
     p.add_argument("--feeder-tx-power-dbw", type=float, default=None)
     p.add_argument("--feeder-noise-temperature-k", type=float, default=None)
+    p.add_argument("--predict-noise-sd", type=float, default=TrafficConfig.predict_rate_noise_sd,
+                   help="predictor-only per-city lognormal error on demand (0 = perfect forecast)")
+    p.add_argument("--predict-noise-seed", type=int, default=TrafficConfig.predict_noise_seed)
     p.add_argument("--w-egress", type=float, default=TopologyConfig.w_egress)
     p.add_argument("--w-congestion", type=float, default=TopologyConfig.w_congestion)
     p.add_argument("--no-all-visible", action="store_true")
@@ -150,6 +153,8 @@ def main() -> int:
         feeder_bandwidth_hz=args.feeder_bandwidth_hz,
         feeder_tx_power_dbw=args.feeder_tx_power_dbw,
         feeder_noise_temperature_k=args.feeder_noise_temperature_k,
+        predict_rate_noise_sd=args.predict_noise_sd,
+        predict_noise_seed=args.predict_noise_seed,
     )
     sites = load_sites(base, ROOT)
     print(f"[variant] {tcfg.variant_label} | {rcfg.variant_label} | {base.variant_label}")
@@ -197,6 +202,8 @@ def main() -> int:
     if step_s != SimConfig.step_s:
         # Without this a 5 s run would resume into, and mix with, a 1 s file.
         stem += f"_step{step_s:g}"
+    if base.predict_rate_noise_sd > 0:
+        stem += f"_prednoise{base.predict_rate_noise_sd:g}-s{base.predict_noise_seed}"
     summary_path, steps_path = out_dir / f"{stem}.csv", out_dir / f"{stem}_steps.csv.gz"
     gateways_path = out_dir / f"{stem}_gateways.csv"
     floor_km = floor_matrix(sites.cities, sites.gateways)

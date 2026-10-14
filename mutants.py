@@ -576,6 +576,11 @@ MUTANTS: list[Mutant] = [
            "expected_rate_bps(sites, np.asarray(utc_hours, dtype=np.float64), tcfg), 1.0, tcfg)",
            "prediction uses the Poisson realisation, not the expected rate",
            suite=EXTENSION_SUITE),
+    Mutant("X21", "traffic/predict.py",
+           "rate = rate * np.exp(sd * z - 0.5 * sd * sd)[None, :]",
+           "rate = rate",
+           "predictor noise silently dropped (robustness run would be a perfect forecast)",
+           suite=EXTENSION_SUITE),
 ]
 
 

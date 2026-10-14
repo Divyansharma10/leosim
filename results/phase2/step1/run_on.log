@@ -1,0 +1,5 @@
+[cache] hit C:\Users\divya\leosim\cache\54a1268e38b278ba
+[variant] objective=max, latency=d_over_c, lookahead=forward, grid_gaps=strict, w_egress=0.2, w_congestion=0.2 | metric=hop, mask=25deg, access=all | load=2Gbps, direction=to_user, gateways=populous20, feeder=stage1, buffer=50ms
+[access] 200 cities, 20 gateways in 20s; gateway feeder capacity per gateway: mean 0.88 Gbps (range 0.00-1.66), total 17.7 Gbps
+[ground] ground: mask=25deg, gateways=populous20, feeder=stage1, demand=expected population x diurnal (perfect forecast), split=equal
+[topology] 2 selectors x 1800 steps in 92s
