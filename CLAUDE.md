@@ -33,12 +33,15 @@ python validate_traffic.py         # stage 4: 34 checks (--steps 300 for a fast 
 
 python validate_extension.py       # Phase 2 extension: 65 checks (61 at --steps 300)
 
-python mutants.py                  # meta-test: 102-mutation sweep, stages 2-4 + extension
+python run_rlenv.py --loads 0.5 1 2   # Phase 3: baseline policies through the RL env
+python validate_rlenv.py           # Phase 3 env: 84 checks, ~18 s (all G* mutants use it)
+
+python mutants.py                  # meta-test: 126-mutation sweep, stages 2-4 + extension + rlenv
 python mutants.py T01 T02          # just the named mutants
 ```
 
 There is no pytest and no test framework. `validate.py`, `validate_topology.py`,
-`validate_routing.py`, `validate_traffic.py` and `validate_extension.py` **are** the tests; each check prints PASS/FAIL with the measured
+`validate_routing.py`, `validate_traffic.py`, `validate_extension.py` and `validate_rlenv.py` **are** the tests; each check prints PASS/FAIL with the measured
 value and the bound. None has a flag to run a single check — to isolate one, call its
 `check_*` function from a scratch script. `--steps 300` is the fast path for the stage-2/3/4 and
 extension suites and is what `mutants.py` drives.
@@ -299,6 +302,118 @@ forecast, the best case for the extension and its main threat to validity. Any r
 gain must be re-measured with the predictor's demand perturbed away from the evaluator's
 (e.g. a shifted diurnal peak, a different trough ratio, or population noise) and the
 gain's dependence on that error stated. A result without it is not reportable.
+
+## Phase 3, step 1 (`rlenv/`): Gymnasium environment, backpressure baseline -- no agent yet
+
+Directed forwarding over a fixed selector's topology, following Krishnan et al.
+(arXiv 2601.13662, Sec. II-III, read 2026-10-15): one aggregate queue per
+satellite, user uplink anycast to any gateway, the downlink drained automatically
+(not in the action), one bit per directed selected link (their Eq. 18), and
+backpressure as "activate k->m iff (Q_k - Q_m) C_km > 0" (Eq. 16).
+
+- **New physics, on purpose.** Stage 4's queues are per link with fixed routes:
+  there is no forwarding decision in it for an action to make. `rlenv/queues.py`
+  is a per-satellite queue model fed by stages 1-4 unchanged (selector link sets,
+  `offered_bits`, access, `gateway_access`). Nothing in `traffic/` was modified.
+- **There were no Phase 2 backpressure numbers** (Phase 2 is fixed OSPF), so
+  "reproduces Phase 2" became three checks: inputs equal stages 2-4's exactly;
+  backpressure through `env.step` equals a direct loop over the queue model,
+  bit for bit; and golden pins (`PIN_BP_*`, recorded on this code, a regression
+  guard only). Plus a curve-shape check: the env's `ShortestPathPolicy` against
+  stage 4's `TrafficSim` (run `to_gateway`) on the same topology and bits; max
+  delivered-fraction gap 0.072 at 3x8. Same routing, two queue models, same
+  curve -- backpressure's lead (0.99 vs 0.55 delivered at load 1) is routing.
+- **Action** `MultiBinary(N, D)`, D = `u_max`; slot (i, k) = send to i's k-th
+  selected neighbour, ascending index, padded with -1 and masked. Padding is
+  ignored, non-binary or misshapen actions are rejected. Legality is asserted
+  inside every `step()`, independently of the decoder.
+- **Observation** Dict, float64 (float32 made backpressure tie on nearly equal
+  queues and diverge from the raw-queue loop by 1 Mb at load 0.5): `queue` as
+  q/(q+q_ref) in [0, 1), `isl_capacity` and `downlink_capacity` over FIXED
+  whole-window maxima, `neighbours`, `action_mask`.
+- **Unbounded queues are load-bearing.** With a finite buffer the queue-only
+  reward is gamed by dropping: at load 2, 5 s buffer, Random out-scored
+  backpressure (-1.11 vs -1.30) while delivering 47% vs 62%. `buffer_s` stays
+  available, default None. Reward is linear -(w_mean mean + w_max max) of q/q_ref.
+- **Load is scaled to the subset** (`EnvConfig.load` = served demand / the
+  subset's total downlink capacity), because the global 2 Gbps peak puts ~0.5
+  Gbps on 24 satellites with ~3 Gbps of downlink. The action only matters once
+  congested: at load 0.5 Random is close to backpressure (-0.32 vs -0.26).
+- **Shadow reward (Eq. 20), `reward_kind="shadow"`: PARALLEL run** (chosen
+  2026-10-16; the paper does not say). A second queue model, empty at reset,
+  stepped with backpressure on its own queues through the env's own
+  `observe`/`forward_for`, same arrivals. Checked bit for bit against a real
+  backpressure rollout, and per step = queue reward(agent) - queue reward(BP).
+  `RewardContext.counterfactual` (one-step) remains, for analysis only.
+- `reward_scale` multiplies every reward the env returns. 1.0, NOT chosen.
+- `start_mode="uniform"` draws each episode's start from the seeded RNG. Needed
+  for training and for any selector comparison (see the scale section below).
+
+**Evaluation scale (2026-10-16): 6x12 = 72 sats, smallest robust choice.**
+Criterion: all four selectors connected at every step of the window, and every
+pair of scored selectors giving backpressure episode rewards that differ by
+more than the seed spread, on episodes spread over the window (starts 0, 400,
+800, 1200, 1599, seeds 7-9, load 1). Measured |dR| in seed-sd units
+(G = Greedy, Df/Db = DoTD-forward/backward):
+
+| shape | N | connected | links G-Df / G-Db | BP G-Df | BP G-Db | SP G-Df |
+|---|---|---|---|---|---|---|
+| 4x10 | 40 | all | 5.5% / 0.1% | 11.3 | 0.1 | 0.0 |
+| 4x12 | 48 | all | 5.2% / 0.0% | 0.1 | 0.0 | 0.0 |
+| 4x15 | 60 | all | 8.2% / 3.2% | 5.8 | 0.1 | 0.0 |
+| 5x12 | 60 | all | 23% / 6.5% | 1.9 | 2.1 | 13.2 |
+| **6x12** | **72** | **all** | 25% / 7.5% | 3.8 | 2.0 | 2.2 |
+| 5x15 | 75 | all | 25% / 5.9% | 8.2 | 2.0 | 1.1 |
+| 8x10, 10x10 | 80, 100 | +Grid never | | | | |
+| 6x15 | 90 | DoTD-b 29% disconnected | | | | |
+
+- Smaller shapes all fail (3x8 ... 3x16: the scored selectors are identical;
+  5x8, 6x8, 5x10, 6x10: someone disconnects).
+- 4x10 is the smallest for Greedy vs DoTD-forward ALONE, but fragile: 4x12,
+  bigger, has the same link gap (5%) and no outcome gap. DoTD-backward equals
+  Greedy there. 5x12 is borderline (~2 sd).
+- Link differences do not imply outcome differences. Backpressure delivers
+  the same fraction on any connected topology (the downlink caps it), so the
+  topology shows up in queue lengths, not delivery. At 5x8 and 4x15 the scored
+  selectors agree for the first 342 / 477 steps, which is why fixed episodes at
+  step 0 showed no difference.
+- "Seed sd" here is 3 seeds x 5 starts at one load: a screening criterion, not
+  a significance test. Re-measure at the chosen scale before reporting.
+
+**Queue-model agreement is shape- and window-dependent.** Shortest-path
+delivered fraction, env vs stage 4, max |d| over loads 0.25-2, by episode start:
+
+| shape | start 0 | start 800 | start 1599 |
+|---|---|---|---|
+| 3x8 | 0.072 | | |
+| 10x20 (187) | 0.041 | 0.081 | 0.079 |
+| 4x6 | 0.113 | 0.031 | 0.073 |
+
+Two mechanisms, with opposite signs:
+1. Buffering (env higher): stage 4's 50 ms per-link buffers drop bursts that
+   unbounded per-satellite queues carry over. Largest near the knee (4x6 start
+   0, load 1: +0.113; 187: up to +0.081 at load 0.5).
+2. Stranded demand (env lower, independent of load): a city attaches to its
+   best-capacity satellite even if that satellite's component has no gateway.
+   Stage 4 attaches through a satellite that has a path, or drops the bits from
+   its denominator as no_path. 4x6 start 1599: 9.8% of arrivals stranded, giving
+   -0.067 at every load. 0.0% at 3x8 and 187, and 0 on any topology connected
+   at every step, so it does not arise at the 6x12 evaluation scale.
+
+Default 3x8 = 24 sats, chosen from a measured sweep of 24-sat shapes (gateway
+in view on 13.6% of satellite-steps, connected, selected degree 3.71). Wider
+shapes (4x6, 8x3, 12x2) split into ~2 components. 3x8 is the CPU dev scale
+only: its selectors are identical. `validate_rlenv.py` 84/84 at
+the default, 71/71 at 10x20 (187 sats; golden pins skipped off-default, count before the per-step capacity checks), and
+24/24 `G*` mutants killed. Recorded findings, checks NOT weakened:
+
+- At 3x8 Greedy, DoTD-forward and DoTD-backward pick identical topologies at all
+  1800 steps (the matching is nearly forced), so `selector` only distinguishes
+  +Grid from the scored ones at this scale.
+- 2x12 and 4x6 fail "backpressure delivers at least what shortest path does":
+  at light load backpressure trails by up to 0.015 (no queue gradient, so bits
+  wander). 4x6 also fails the curve-shape bound at the knee (0.113 at load 1):
+  50 ms per-link buffers vs unbounded queues.
 
 `README.md` documents stage 1 only, and two of its sections are now stale: the satellite
 selection (it describes 20 planes × 5) and the visibility-geometry formula (the clamped

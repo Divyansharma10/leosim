@@ -11,8 +11,8 @@ Mutants believed equivalent are marked ``expect_equivalent`` with the reason,
 and are reported separately, so a believed-equivalent survivor cannot be
 mistaken for a coverage gap and an unexpected survivor stands out.
 
-Scope: stage-2 (M*), stage-3 (R*), stage-4 (T*) and Phase 2 extension (X*)
-modules. Each mutant names the suite that
+Scope: stage-2 (M*), stage-3 (R*), stage-4 (T*), Phase 2 extension (X*)
+and Phase 3 environment (G*) modules. Each mutant names the suite that
 is supposed to catch it, and only that suite is run, so a stage-3 mutant cannot
 be credited to a stage-2 check. The stage-1 mutation sweep referred to in the
 project doc (48 mutants) was never committed to this repository, so there was
@@ -47,6 +47,7 @@ TOPOLOGY_SUITE = (sys.executable, "validate_topology.py", "--steps", "300")
 ROUTING_SUITE = (sys.executable, "validate_routing.py", "--steps", "300")
 TRAFFIC_SUITE = (sys.executable, "validate_traffic.py", "--steps", "300")
 EXTENSION_SUITE = (sys.executable, "validate_extension.py", "--steps", "300")
+RL_SUITE = (sys.executable, "validate_rlenv.py")
 TIMEOUT_S = 900
 
 
@@ -581,6 +582,127 @@ MUTANTS: list[Mutant] = [
            "rate = rate",
            "predictor noise silently dropped (robustness run would be a perfect forecast)",
            suite=EXTENSION_SUITE),
+    # --- rlenv/ (Phase 3 environment) ---------------------------------------------
+    Mutant('G01', 'rlenv/reward.py',
+           'return -(self.w_mean * float(q.mean()) + self.w_max * float(q.max()))',
+           'return (self.w_mean * float(q.mean()) + self.w_max * float(q.max()))',
+           'reward sign flipped',
+           suite=RL_SUITE),
+    Mutant('G02', 'rlenv/env.py',
+           '"queue": self._squash(self.queues.queue),',
+           '"queue": self.queues.queue.astype(np.float64),',
+           'queue observation not normalised (raw bits)',
+           suite=RL_SUITE),
+    Mutant('G03', 'rlenv/env.py',
+           'applied = self._validate_action(action) & self._mask(t)',
+           'applied = self._validate_action(action)',
+           'action mask ignored (padding slots decoded)',
+           suite=RL_SUITE),
+    Mutant('G04', 'rlenv/env.py',
+           'truncated = self.k >= self.cfg.episode_steps',
+           'truncated = self.k > self.cfg.episode_steps',
+           'episode boundary one step late',
+           suite=RL_SUITE),
+    Mutant('G05', 'rlenv/env.py',
+           'truncated = self.k >= self.cfg.episode_steps',
+           'truncated = self.k >= self.cfg.episode_steps - 1',
+           'episode boundary one step early',
+           suite=RL_SUITE),
+    Mutant('G06', 'rlenv/env.py',
+           'self.t, self.k = start, 0',
+           'self.t, self.k = start + 1, 0',
+           'first observation one timestep late',
+           suite=RL_SUITE),
+    Mutant('G07', 'rlenv/env.py',
+           '"isl_capacity": (sc.isl_slot_capacity[t] / sc.isl_ref_bps)',
+           '"isl_capacity": (sc.isl_slot_capacity[t] / max(sc.isl_slot_capacity[t].max(), 1.0))',
+           'ISL capacity normalised per timestep, not by the fixed reference',
+           suite=RL_SUITE),
+    Mutant('G08', 'rlenv/env.py',
+           'demand_seed = seed if seed is not None else',
+           'demand_seed = self.cfg.seed if True else',
+           'reset seed ignored for demand',
+           suite=RL_SUITE),
+    Mutant('G09', 'rlenv/policies.py',
+           'weight = (q[:, None] - q_nbr) * obs["isl_capacity"]',
+           'weight = (q_nbr - q[:, None]) * obs["isl_capacity"]',
+           'backpressure sends uphill',
+           suite=RL_SUITE),
+    Mutant('G10', 'rlenv/queues.py',
+           'new = q - v - sent.sum(axis=1) + sent.sum(axis=0) + arrivals',
+           'new = q - v - sent.sum(axis=1) + arrivals',
+           'received ISL bits vanish',
+           suite=RL_SUITE),
+    Mutant('G11', 'rlenv/queues.py',
+           'share = np.where(total > rem, rem / total, 1.0)',
+           'share = np.ones_like(rem)',
+           'a satellite may send more than it holds',
+           suite=RL_SUITE),
+    Mutant('G12', 'rlenv/queues.py',
+           'v = np.minimum(q, downlink_capacity * dt)',
+           'v = np.where(downlink_capacity > 0, q, 0.0)',
+           'downlink ignores its capacity',
+           suite=RL_SUITE),
+    Mutant('G13', 'rlenv/scenario.py',
+           'peak = cfg.load * dl_mean / served_unit',
+           'peak = cfg.load',
+           'load not scaled to the subset',
+           suite=RL_SUITE),
+    Mutant('G14', 'rlenv/scenario.py',
+           'out[t, c] = sats[int(np.argmax(cap))]',
+           'out[t, c] = sats[0]',
+           'city attaches to its lowest-index satellite, not its best',
+           suite=RL_SUITE),
+    Mutant('G15', 'rlenv/scenario.py',
+           'np.maximum.at(out[t], sats, cap)',
+           'np.add.at(out[t], sats, cap)',
+           'downlink sums gateways instead of taking the best',
+           suite=RL_SUITE),
+    Mutant('G16', 'rlenv/env.py',
+           '            return forward_step(prev, f, isl, dl, arrivals, self.queues.dt, self.queues.buffer_bits)',
+           '            return self.queues.step(f, isl, dl, arrivals)',
+           'counterfactual mutates the live state',
+           suite=RL_SUITE),
+    Mutant('G17', 'rlenv/scenario.py',
+           'linksets = make_selector(cfg.selector, ds, topo).run(n_steps)',
+           'linksets = make_selector("+Grid", ds, topo).run(n_steps)',
+           'selector config ignored',
+           suite=RL_SUITE),
+    Mutant('G18', 'rlenv/env.py',
+           'self.queues.reset()',
+           'self.queues.queue = self.queues.queue',
+           'reset does not clear queues',
+           suite=RL_SUITE),
+    Mutant('G19', 'rlenv/reward.py',
+           'forward = self.env.forward_for(self.policy.act(obs), ctx.t)',
+           'forward = self.env.forward_for(ctx.action.astype(np.int8), ctx.t)',
+           "shadow forwards with the agent's action, not backpressure's",
+           suite=RL_SUITE),
+    Mutant('G20', 'rlenv/reward.py',
+           'self.shadow = QueueModel(env.n_sats, env.queues.dt, env.queues.buffer_bits)',
+           'self.shadow = self.shadow or QueueModel(env.n_sats, env.queues.dt, env.queues.buffer_bits)',
+           'shadow queues carried across resets',
+           suite=RL_SUITE),
+    Mutant('G21', 'rlenv/reward.py',
+           'self.last = self.shadow.step(',
+           'self.shadow.restore(ctx.prev_queue); self.last = self.shadow.step(',
+           "shadow is a one-step counterfactual from the agent's state, not a parallel run",
+           suite=RL_SUITE),
+    Mutant('G22', 'rlenv/reward.py',
+           'float(qa.mean() - qb.mean())',
+           'float(qb.mean() - qa.mean())',
+           'shadow mean term sign flipped',
+           suite=RL_SUITE),
+    Mutant('G23', 'rlenv/env.py',
+           'reward = self.cfg.reward_scale * float(',
+           'reward = 1.0 * float(',
+           'reward_scale ignored',
+           suite=RL_SUITE),
+    Mutant('G24', 'rlenv/env.py',
+           'if self.cfg.start_mode == "uniform":',
+           'if False:',
+           'start_mode uniform ignored',
+           suite=RL_SUITE),
 ]
 
 
@@ -590,7 +712,7 @@ def sha(path: Path) -> str:
 
 def clear_bytecode() -> None:
     dirs = [ROOT / "__pycache__"]
-    for pkg in ("topology", "routing", "traffic", "leosim"):
+    for pkg in ("topology", "routing", "traffic", "rlenv", "leosim"):
         dirs.extend((ROOT / pkg).rglob("__pycache__"))
     for d in dirs:
         shutil.rmtree(d, ignore_errors=True)
@@ -663,7 +785,7 @@ def main(argv: list[str]) -> int:
     # Both suites must be green before any mutant means anything. A mutant runs
     # only against the suite meant to catch it, so a suite that was already red
     # would turn every one of its mutants into a false KILL.
-    for suite in (TOPOLOGY_SUITE, ROUTING_SUITE, TRAFFIC_SUITE, EXTENSION_SUITE):
+    for suite in (TOPOLOGY_SUITE, ROUTING_SUITE, TRAFFIC_SUITE, EXTENSION_SUITE, RL_SUITE):
         if not any(m.suite == suite for m in chosen):
             continue
         print(f"Baseline: unmutated suite must pass ({' '.join(suite[1:])})")
