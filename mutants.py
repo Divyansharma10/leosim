@@ -738,13 +738,9 @@ MUTANTS: list[Mutant] = [
            'replay sampling biased to the older half',
            suite=AGENT_SUITE),
     Mutant('A04', 'agent/ddqn.py',
-           """    if step >= cfg.eps_decay_steps:
-        return cfg.eps_end
-    return cfg.eps_start + (step / cfg.eps_decay_steps) * (cfg.eps_end - cfg.eps_start)""",
-           """    if step >= cfg.eps_decay_steps:
-        return cfg.eps_start
-    return cfg.eps_end + (step / cfg.eps_decay_steps) * (cfg.eps_start - cfg.eps_end)""",
-           'epsilon schedule inverted (rises from eps_end to eps_start)',
+           'return cfg.eps_start + (step / cfg.eps_decay_steps) * (cfg.eps_end - cfg.eps_start)',
+           'return cfg.eps_end + (step / cfg.eps_decay_steps) * (cfg.eps_start - cfg.eps_end)',
+           'epsilon schedule inverted (rises from eps_end to eps_start during the decay)',
            suite=AGENT_SUITE),
     Mutant('A05', 'agent/ddqn.py',
            '_, adv_on = self.online.value_advantage(nfeats, nmask)',
@@ -792,8 +788,8 @@ MUTANTS: list[Mutant] = [
            'gain ignored (residual cannot be switched off)',
            suite=AGENT_SUITE),
     Mutant('A14', 'agent/features.py',
-           '        dist[nxt] = level\n        frontier = nxt',
-           '        dist[nxt] = level + 1\n        frontier = nxt',
+           'dist[nxt] = level',
+           'dist[nxt] = level + 1',
            'hop distance off by one',
            suite=AGENT_SUITE),
     Mutant('A15', 'agent/features.py',
