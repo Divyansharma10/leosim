@@ -56,10 +56,19 @@ ROOT = Path(__file__).parent
 # recorded on the Phase 1 code BEFORE the extension existed (commit edfde1c,
 # default 187-satellite constellation, stage-1 cache 54a1268e38b278ba). Not
 # recomputed: a reference derived from the current code would move with it.
+#
+# EXCEPT the two +Grid pins, re-recorded once, deliberately, on 2026-10-26
+# when the cross-plane pairing got a deterministic tie-break
+# (topology/grid.py, deterministic_assignment). The Phase 1 pins were
+# f4ed656f.. (300) and a184a2d6.. (1800): they captured one machine's choice
+# among exactly tied pairings, and an AVX-512 machine chose differently. The
+# new pins hold +Grid to the tie-broken pairing on every machine; the scored
+# selectors' pins are untouched. Not an extension regression guard for +Grid
+# against Phase 1 any more: the change of +Grid itself is the reason.
 # --------------------------------------------------------------------------
 GOLDEN = {
     300: {
-        "+Grid": ("f4ed656f1bbb547d33364c97e4785234781f338f9620bdf7e054e7a9829a9526", None),
+        "+Grid": ("dcb98776e0849b0496182f37b828bb207dbb16caf597bfc0a0016e65ec668cf8", None),
         "Greedy": ("af0b1a9517ec3e6a56bb43a50ffdcc865a047a1d1ab034726fa3f0667b23a7b1",
                    "efe8893dd825a5a79b57533b0a8248057e51a10bb9f7a1faf11d1d255c483967"),
         "DoTD-forward": ("426c8a0850b101c6faaaac8ef2f62bd95a36a10c8056a20b425b0954a5b59631",
@@ -68,7 +77,7 @@ GOLDEN = {
                           "681f694aec0291e23f9cf8a5090f2630834d4cae01ce9d5b9cf5468b629a6d7d"),
     },
     1800: {
-        "+Grid": ("a184a2d67c17ff7818d55da3c57e6ec3051026ae617bec29e62f7600b7162261", None),
+        "+Grid": ("e6120f8afb2b08a1043d10606eab7f1a91569dd6a68bd5848f68e00ff3011497", None),
         "Greedy": ("6ed43da6ade256ada09e9b43fa793ec4712aec2785707b94416b0d923e24c24e",
                    "4f84820bb8bfdad22bda0a273c119a9f0ab7cc8034c94dec6636304644f16f4a"),
         "DoTD-forward": ("b6026e9ef4feebb305ab89dbcc43c0e144c5120d28fcdd0956c87ee8446b677b",

@@ -85,6 +85,18 @@ SEPARABILITY_WARN_FRACTION = 0.5
 # Trajectory samples used to fit each satellite's orbit normal.
 NORMAL_FIT_SAMPLES = 60
 
+# Two cross-plane pairings whose total circular phase difference agrees to
+# within this are tied, and the tie goes to the lower satellite index. Exact
+# ties are common, not a corner case: summed |phase difference| (L1 matching)
+# is degenerate whenever several members of one plane lie on the same side of
+# several members of the other. Without a tolerance, which tied pairing comes
+# out is decided by the last bit of the SVD-fitted phases, and that bit
+# differed between two machines (CLAUDE.md, "Cross-machine reproducibility").
+# Observed cross-machine phase noise is 5.7e-14 deg; 1e-9 is ~1e3 x that
+# summed over a plane, and far below any physically meaningful difference.
+# ASSUMED: numerical tolerance, not from the paper.
+PAIRING_TIE_TOL_DEG = 1e-9
+
 
 def _unit(v: np.ndarray) -> np.ndarray:
     return v / np.linalg.norm(v, axis=-1, keepdims=True)
@@ -324,6 +336,62 @@ def build_plane_structure(
     )
 
 
+def _min_cost(cost: np.ndarray) -> float:
+    if cost.shape[0] == 0:
+        return 0.0
+    rows, cols = linear_sum_assignment(cost)
+    return float(cost[rows, cols].sum())
+
+
+def deterministic_assignment(
+    cost: np.ndarray, row_ids: np.ndarray, col_ids: np.ndarray, tol: float = PAIRING_TIE_TOL_DEG
+) -> tuple[list[tuple[int, int]], dict]:
+    """Minimum-total-cost one-to-one assignment, ties broken by index.
+
+    Requires ``len(row_ids) <= len(col_ids)``: every row is matched. Rows are
+    fixed in ascending ``row_ids`` order, each to the lowest-``col_ids``
+    column that still admits a completion within ``tol`` of the optimum. The
+    result is a function of the costs up to ``tol``, not of the solver's
+    internal order, which is what makes it the same on any machine.
+
+    Returns (row position, column position) pairs, plus how close the
+    decisions came to flipping: ``max_tied_gap`` (largest gap accepted as a
+    tie; should be float noise) and ``min_rejected_gap`` (smallest gap
+    rejected; should be far above ``tol``), and ``index_decided`` (rows where
+    more than one column was tied, i.e. where the index rule chose).
+    """
+    k, m = cost.shape
+    if k > m:
+        raise ValueError(f"deterministic_assignment needs rows <= cols, got {k} x {m}")
+    best = _min_cost(cost)
+    rows_left = sorted(range(k), key=lambda r: row_ids[r])
+    cols_left = sorted(range(m), key=lambda c: col_ids[c])
+    fixed, pairs = 0.0, []
+    max_tied, min_rejected, decided = 0.0, np.inf, 0
+    while rows_left:
+        r, rest = rows_left[0], rows_left[1:]
+        tied = []
+        for c in cols_left:
+            others = [x for x in cols_left if x != c]
+            gap = fixed + float(cost[r, c]) + _min_cost(cost[np.ix_(rest, others)]) - best
+            if gap <= tol:
+                tied.append(c)
+                max_tied = max(max_tied, gap)
+            else:
+                min_rejected = min(min_rejected, gap)
+        if not tied:
+            raise AssertionError("no column completes an optimal assignment; tolerance below solver noise?")
+        decided += len(tied) > 1
+        pick = tied[0]
+        pairs.append((r, pick))
+        fixed += float(cost[r, pick])
+        rows_left, cols_left = rest, [x for x in cols_left if x != pick]
+    if fixed > best + tol:
+        raise AssertionError(f"tie-break lost optimality: {fixed} > {best} + {tol}")
+    return pairs, {"optimum": best, "chosen": fixed, "max_tied_gap": max_tied,
+                   "min_rejected_gap": min_rejected, "index_decided": decided}
+
+
 def structural_pairs(structure: PlaneStructure) -> tuple[np.ndarray, np.ndarray]:
     """(N, N) bool grid, plus (N, N) int8 kind: 1 in-plane, 2 cross-plane.
 
@@ -332,10 +400,18 @@ def structural_pairs(structure: PlaneStructure) -> tuple[np.ndarray, np.ndarray]
     none.
 
     Cross-plane: for each adjacent plane pair, a one-to-one assignment
-    minimising total circular phase difference (Hungarian algorithm). One-to-one
-    is what makes the grid a grid -- nearest-neighbour picking instead lets
-    several satellites claim the same partner, which then overflows U=4 and has
-    to be broken by a rule that is no longer structural.
+    minimising total circular phase difference, ties (within
+    ``PAIRING_TIE_TOL_DEG``) broken by satellite index; see
+    :func:`deterministic_assignment`. One-to-one is what makes the grid a grid
+    -- nearest-neighbour picking instead lets several satellites claim the same
+    partner, which then overflows U=4 and has to be broken by a rule that is no
+    longer structural.
+
+    Until 2026-10-26 the pairing was whatever ``linear_sum_assignment``
+    returned, and for tied pairings that depended on last-bit noise in the
+    phases: two machines produced grids 4 links apart.
+
+    Writes per-pair decision margins to ``structure.diagnostics["pairing"]``.
     """
     n = sum(len(m) for m in structure.members.values())
     phase = np.asarray(structure.diagnostics["phase_deg"])
@@ -353,23 +429,27 @@ def structural_pairs(structure: PlaneStructure) -> tuple[np.ndarray, np.ndarray]
                 kind[i, j] = kind[j, i] = 1
 
     done: set[tuple[int, int]] = set()
+    pairing = {}
     for p in structure.plane_ids:
         for q in structure.adjacent[p]:
             key = (min(p, q), max(p, q))
             if key in done:
                 continue
             done.add(key)
-            mp, mq = structure.members[p], structure.members[q]
+            mp, mq = structure.members[key[0]], structure.members[key[1]]
             if len(mp) == 0 or len(mq) == 0:
                 continue
+            if len(mp) > len(mq):  # rows must be the smaller plane
+                mp, mq = mq, mp
             d = np.abs(phase[mp][:, None] - phase[mq][None, :]) % 360.0
             cost = np.minimum(d, 360.0 - d)
-            rows, cols = linear_sum_assignment(cost)
-            for r_, c_ in zip(rows, cols):
+            pairs, pairing[key] = deterministic_assignment(cost, mp, mq)
+            for r_, c_ in pairs:
                 i, j = mp[r_], mq[c_]
                 grid[i, j] = grid[j, i] = True
                 kind[i, j] = kind[j, i] = 2
 
+    structure.diagnostics["pairing"] = pairing
     return grid, kind
 
 

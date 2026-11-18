@@ -1,0 +1,3 @@
+gateways,selector,sat_steps_gw_in_view,steps_no_gw_sat,steps_connected,env_stranded_demand,scaled_peak_gbps_load1
+populous20,Greedy,0.14227623456790123,0.0,1.0,0.0,23.364616075226284
+krishnan8,Greedy,0.055601851851851854,0.002777777777777778,1.0,0.0019632217739152962,9.100963400676656

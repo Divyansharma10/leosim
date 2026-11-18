@@ -77,6 +77,10 @@ PIN_DOWNLINK = [3.0e9, 0.0]
 PIN_BP_DELIVERED_FRAC = 0.9874144425419
 PIN_BP_REWARD_MEAN = -0.7438283471610014
 PIN_BP_QUEUE_SHA256 = "830c70749d136efc8a46becf07528b7f1e529193c3ab5371f388c0a20da6aa79"
+# The same trajectory as an array (200 x 24 float64), saved 2026-10-26 from a
+# run whose bytes matched the SHA-256 above; the live run is compared to it
+# with a tolerance, since exact bytes do not survive a change of numpy build.
+PIN_BP_QUEUE_FILE = ROOT / "data" / "pins" / "rlenv_bp_queue_seed7.npy"
 
 
 class Recorder:
@@ -106,6 +110,14 @@ def _obs_equal(a: dict, b: dict) -> bool:
 
 def _queue_sha(qs) -> str:
     return hashlib.sha256(np.ascontiguousarray(np.stack(qs)).tobytes()).hexdigest()
+
+
+def _traj_dev(qs, ref: np.ndarray) -> float:
+    """Max |q - ref| over the trajectory, relative to max |ref|; inf on a shape mismatch."""
+    q = np.stack(qs)
+    if q.shape != ref.shape:
+        return float("inf")
+    return float(np.max(np.abs(q - ref)) / max(float(np.max(np.abs(ref))), 1.0))
 
 
 # --- unit pins ------------------------------------------------------------------
@@ -440,21 +452,31 @@ def check_inside_alongside(chk: Checks, cfg: EnvConfig, sc) -> None:
     env_q = [c.result.queue for c in rec.ctxs]
 
     # Direct: no slots, no mask, no normalisation; raw queues, (Q_i - Q_j) C_ij > 0.
+    env_d = [c.result.delivered for c in rec.ctxs]
     qm = QueueModel(sc.n_sats, sc.dataset.config.step_s, sc.buffer_bits)
     off = sc.offered(7)
-    direct_q, delivered = [], 0.0
+    direct_q, direct_d, delivered = [], [], 0.0
     for t in range(cfg.start_step, cfg.start_step + cfg.episode_steps):
         cap = sc.isl_capacity(t)
         q = qm.queue
         fwd = (q[:, None] - q[None, :]) * cap > 0
         r = qm.step(fwd, cap, sc.downlink[t], sc.arrivals(off[t], t))
         direct_q.append(r.queue)
+        direct_d.append(r.delivered)
         delivered += r.delivered.sum()
     same = all(np.array_equal(a, b) for a, b in zip(env_q, direct_q))
     chk.record("queue trajectory identical, bit for bit", same,
                f"final backlog env {sum(env_q[-1]):.10g}, direct {sum(direct_q[-1]):.10g}")
-    chk.record("delivered identical", res["delivered_bits"] == delivered,
-               f"{res['delivered_bits']:.10g} vs {delivered:.10g}")
+    # Per satellite and step, exactly: no reduction is involved, so this is as
+    # strict as before. Only the episode total, a sum whose last bit depends
+    # on numpy's SIMD path (it differed on the cluster's numpy 2.5.4), gets a
+    # tolerance.
+    chk.record("delivered identical per satellite and step, bit for bit",
+               len(env_d) == len(direct_d) and all(np.array_equal(a, b) for a, b in zip(env_d, direct_d)),
+               f"{len(env_d)} steps")
+    rel = abs(res["delivered_bits"] - delivered) / max(abs(delivered), 1.0)
+    chk.record("delivered episode total equal within float summation error", rel <= VCFG.sum_rtol,
+               f"{res['delivered_bits']:.17g} vs {delivered:.17g}, rel {rel:.3g} (bound {VCFG.sum_rtol:g})")
     chk.record("discrimination: backpressure differs from all-on here",
                rollout(env, ConstantPolicy(True), 7)["final_backlog_bits"] != res["final_backlog_bits"], "")
 
@@ -468,7 +490,20 @@ def check_inside_alongside(chk: Checks, cfg: EnvConfig, sc) -> None:
         return
     chk.close_to("pinned: backpressure delivered fraction", res["delivered_frac"], PIN_BP_DELIVERED_FRAC, 1e-12)
     chk.close_to("pinned: backpressure episode-mean reward", res["reward_mean"], PIN_BP_REWARD_MEAN, 1e-12)
-    chk.record("pinned: backpressure queue trajectory SHA-256", sha == PIN_BP_QUEUE_SHA256, sha)
+    # The trajectory is compared numerically against the stored recording, and
+    # the stored file is held to the original SHA-256 pin, so the reference
+    # cannot be silently re-recorded: replacing it means changing this pin too.
+    ref = np.load(PIN_BP_QUEUE_FILE)
+    chk.record("pinned: stored reference trajectory is the original recording (SHA-256)",
+               _queue_sha(list(ref)) == PIN_BP_QUEUE_SHA256, f"{PIN_BP_QUEUE_FILE.name}, {ref.shape}")
+    dev = _traj_dev(env_q, ref)
+    chk.record("pinned: backpressure queue trajectory matches the recording", dev <= VCFG.queue_rtol,
+               f"max |dq| / max q = {dev:.3g} (bound {VCFG.queue_rtol:g}); exact bytes {'equal' if sha == PIN_BP_QUEUE_SHA256 else 'differ'}")
+    env8, rec8 = _env(cfg, sc, record=True)
+    rollout(env8, BackpressurePolicy(), 8)
+    dev8 = _traj_dev([c.result.queue for c in rec8.ctxs], ref)
+    chk.record("discrimination: seed 8 is far outside the trajectory tolerance", dev8 > 1e3 * VCFG.queue_rtol,
+               f"max |dq| / max q = {dev8:.3g}, else the tolerance could pass any trajectory")
 
 
 def check_policies(chk: Checks, cfg: EnvConfig, sc) -> None:

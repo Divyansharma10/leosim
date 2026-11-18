@@ -36,7 +36,13 @@ from topology import (
     assert_valid,
 )
 from topology.metrics import link_churn, metrics_frame, summary_table, timestep_metrics
-from topology.grid import GAP_FACTORS, build_plane_structure, structural_pairs
+from topology.grid import (
+    GAP_FACTORS,
+    PAIRING_TIE_TOL_DEG,
+    build_plane_structure,
+    deterministic_assignment,
+    structural_pairs,
+)
 from topology.scoring import RunningNormaliser, link_score
 from validate import Checks, section
 
@@ -91,6 +97,15 @@ class TopologyValidationConfig:
     # Window for re-running the ambiguity-flag variants; they only need to show
     # the flag is not inert, not reproduce the whole run.
     flag_window_steps: int = 120
+    # +Grid pairing robustness (2026-10-26). Phase noise injected to test that
+    # the structural grid does not depend on last bits: ~200 x the measured
+    # cross-machine phase difference (5.7e-14 deg), still far below the tie
+    # tolerance. Seeds: how many noise draws.
+    pairing_noise_deg: float = 1e-11
+    pairing_noise_seeds: int = 5
+    # Every accepted tie must be this factor below the tolerance, and every
+    # rejected pairing this factor above it, else noise could still flip one.
+    pairing_margin_factor: float = 1e3
 
     # +Grid plane grouping must satisfy spread < this fraction of the gap.
     plane_separability_fraction: float = 0.5
@@ -880,6 +895,8 @@ def check_grid(
         f"ratio {ratio:.4f}, required <= {vcfg.grid_churn_ratio_max:g}",
     )
 
+    check_grid_pairing(chk, s, g.grid, vcfg)
+
     # No scoring at all: changing every scoring knob must leave +Grid unchanged.
     # Built from tcfg, not a fresh config: grid_gaps is structural, and a fresh
     # config would silently reset it to the default and compare two grids.
@@ -895,6 +912,92 @@ def check_grid(
         same,
         f"compared {n} timesteps under changed weights, objective, latency formula, lookahead",
     )
+
+
+def _plain_lsa_grid(structure, phase: np.ndarray) -> np.ndarray:
+    """Cross-plane links as the pre-2026-10-26 code chose them: whatever
+    linear_sum_assignment returns, ties included. Discrimination only -- it
+    shows the hazard the noise check exists for, not the quantity under test."""
+    from scipy.optimize import linear_sum_assignment
+
+    n = len(phase)
+    grid = np.zeros((n, n), dtype=bool)
+    done = set()
+    for p in structure.plane_ids:
+        for q in structure.adjacent[p]:
+            key = (min(p, q), max(p, q))
+            if key in done:
+                continue
+            done.add(key)
+            mp, mq = structure.members[key[0]], structure.members[key[1]]
+            if len(mp) > len(mq):
+                mp, mq = mq, mp
+            d = np.abs(phase[mp][:, None] - phase[mq][None, :]) % 360.0
+            r, c = linear_sum_assignment(np.minimum(d, 360.0 - d))
+            grid[mp[r], mq[c]] = grid[mq[c], mp[r]] = True
+    return grid
+
+
+def check_grid_pairing(chk: Checks, s, grid: np.ndarray, vcfg: TopologyValidationConfig) -> None:
+    """The cross-plane pairing is optimal, tie-broken, and machine-independent.
+
+    Added after two machines built +Grids 4 links apart from phases that agreed
+    to 5.7e-14 deg: the pairing had exact ties and the solver's pick among them
+    followed the last bit (CLAUDE.md, "Cross-machine reproducibility").
+    """
+    from scipy.optimize import linear_sum_assignment
+
+    # Hand-checkable pin. Rows (ids 0, 1) at phases 0 and 10 deg, columns
+    # (ids 3, 2) at 30 and 20 deg: every row below every column, so both
+    # pairings total 40 deg -- an exact tie. Lowest index first: row 0 takes
+    # the lowest-id column, 2, leaving 1-3. Pairing by array position instead
+    # of id would give 0-3, 1-2; the highest index first would give 0-3 too.
+    cost = np.array([[30.0, 20.0], [20.0, 10.0]])
+    rows, cols = np.array([0, 1]), np.array([3, 2])
+    got, _ = deterministic_assignment(cost, rows, cols)
+    got_ids = sorted((int(rows[r]), int(cols[c])) for r, c in got)
+    chk.record("pinned: a tied pairing goes to the lowest satellite index",
+               got_ids == [(0, 2), (1, 3)], f"pairs {got_ids}, pinned [(0, 2), (1, 3)]")
+
+    pairing = s.diagnostics["pairing"]
+    phase = np.asarray(s.diagnostics["phase_deg"])
+    worst_opt = 0.0
+    for (p, q), info in pairing.items():
+        mp, mq = s.members[p], s.members[q]
+        d = np.abs(phase[mp][:, None] - phase[mq][None, :]) % 360.0
+        cost = np.minimum(d, 360.0 - d)
+        r, c = linear_sum_assignment(cost)
+        sel = grid[np.ix_(mp, mq)]
+        worst_opt = max(worst_opt, abs(float(cost[sel].sum()) - float(cost[r, c].sum())))
+    chk.record("+Grid cross-plane pairing reaches the minimum total phase difference, every plane pair",
+               worst_opt <= PAIRING_TIE_TOL_DEG,
+               f"{len(pairing)} plane pairs; worst |chosen - optimum| {worst_opt:.3g} deg "
+               f"(tolerance {PAIRING_TIE_TOL_DEG:g})")
+
+    tied = max(v["max_tied_gap"] for v in pairing.values())
+    rejected = min(v["min_rejected_gap"] for v in pairing.values())
+    f = vcfg.pairing_margin_factor
+    chk.record("+Grid pairing decisions are far from the tie tolerance on both sides",
+               tied <= PAIRING_TIE_TOL_DEG / f and rejected >= PAIRING_TIE_TOL_DEG * f,
+               f"largest accepted tie {tied:.3g} deg, smallest rejected gap {rejected:.3g} deg; "
+               f"required <= {PAIRING_TIE_TOL_DEG / f:g} and >= {PAIRING_TIE_TOL_DEG * f:g}")
+    decided = sum(v["index_decided"] for v in pairing.values())
+    chk.record("non-vacuous: the index tie-break decides some pairings on this shell",
+               decided > 0, f"{decided} rows had more than one tied partner")
+
+    same, plain_flips = 0, 0
+    plain_ref = _plain_lsa_grid(s, phase)
+    for seed in range(vcfg.pairing_noise_seeds):
+        noisy = phase + np.random.default_rng(seed).normal(0.0, vcfg.pairing_noise_deg, phase.shape)
+        st = dataclasses.replace(s, diagnostics={**s.diagnostics, "phase_deg": noisy.tolist()})
+        same += bool(np.array_equal(structural_pairs(st)[0], grid))
+        plain_flips += not np.array_equal(_plain_lsa_grid(s, noisy), plain_ref)
+    n = vcfg.pairing_noise_seeds
+    chk.record(f"+Grid structure unchanged by {vcfg.pairing_noise_deg:g} deg phase noise",
+               same == n, f"{same}/{n} noise draws give the identical grid")
+    chk.record("discrimination: the untie-broken solver changes under the same noise",
+               plain_flips > 0, f"{plain_flips}/{n} draws change the plain linear_sum_assignment grid, "
+               "else the noise check could pass without a tie-break")
 
 
 def check_plane_adjacency(chk: Checks, dataset: LinkDataset) -> None:

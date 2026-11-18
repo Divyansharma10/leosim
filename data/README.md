@@ -58,3 +58,11 @@ in order.
 That paper gives NO numeric values for gateway-link bandwidth, transmit power, noise
 temperature, path-loss exponent or elevation mask -- they appear only as symbols
 (Eqs. 8-11) and there is no parameter table. Nothing else was taken from it.
+
+## `pins/`
+
+Reference arrays for regression guards that cannot be exact-byte hashes across
+machines (see CLAUDE.md, "Cross-machine reproducibility").
+`rlenv_bp_queue_seed7.npy`: backpressure queue trajectory, default `EnvConfig`,
+seed 7, 200 x 24 float64, saved 2026-10-26 from a run whose bytes match
+`PIN_BP_QUEUE_SHA256` in `validate_rlenv.py`.

@@ -23,7 +23,7 @@ python validate.py                 # stage 1: 29 physics checks
 python plot_visibility.py          # -> visible_pairs.png
 
 python run_topology.py             # stage 2: all selectors, metrics CSV + plot
-python validate_topology.py        # stage 2: 96 checks (--steps 300 for a fast pass)
+python validate_topology.py        # stage 2: 102 checks (--steps 300 for a fast pass)
 
 python run_experiment1.py          # stage 3: the paper's city-to-city hop counts
 python validate_routing.py         # stage 3: 44 checks (--steps 300 for a fast pass)
@@ -34,9 +34,9 @@ python validate_traffic.py         # stage 4: 34 checks (--steps 300 for a fast 
 python validate_extension.py       # Phase 2 extension: 65 checks (61 at --steps 300)
 
 python run_rlenv.py --loads 0.5 1 2   # Phase 3: baseline policies through the RL env
-python validate_rlenv.py           # Phase 3 env: 84 checks, ~18 s (all G* mutants use it)
+python validate_rlenv.py           # Phase 3 env: 87 checks, ~18 s (all G* mutants use it)
 
-python mutants.py                  # meta-test: 126-mutation sweep, stages 2-4 + extension + rlenv
+python mutants.py                  # meta-test: 129-mutation sweep, stages 2-4 + extension + rlenv
 python mutants.py T01 T02          # just the named mutants
 ```
 
@@ -182,6 +182,56 @@ either a missing check or a genuinely equivalent mutant — and equivalence must
 *verified and written down*, not assumed. Two are currently marked equivalent with
 reasons; re-check those reasons when the code around them changes.
 
+## Cross-machine reproducibility (2026-10-26) -- a stated limitation
+
+**Exact-byte reproducibility does not hold across machines. Numerical
+reproducibility holds to ~1e-15 for every float quantity checked so far.**
+Measured between this laptop (Python 3.11.5, numpy 2.0.0, scipy 1.16.1) and
+the A100 cluster (numpy 2.5.4, scipy 1.18.1): the pinned backpressure
+delivered fraction agrees to 7.87e-16, every tolerance-based check passes, and
+each machine is deterministic run to run. Greedy, DoTD-forward and
+DoTD-backward agree **bit for bit**, float64 priority matrices included, so
+stage 1 and the stage-2 scoring arithmetic are identical. What differs is the
+last bit of reductions (a sum's SIMD path changes with the numpy build).
+`validate_rlenv.py` therefore compares the pinned queue trajectory to a stored
+array (`data/pins/`, itself held to the original SHA-256) within
+`RLValidationConfig.queue_rtol`, and episode totals within `sum_rtol`;
+per-step vectors with no reduction are still compared exactly.
+
+**+Grid previously had an order-dependent pairing (fixed 2026-10-26).** Its
+cross-plane links came from whatever `linear_sum_assignment` returned, and
+7 of the 9 plane pairs on the default shell have exactly tied optima: summed
+|phase difference| (L1 matching) is degenerate whenever several members of
+one plane lie on the same side of several members of the other. Which tied
+pairing came out was decided by the last bit of the SVD-fitted phases.
+Measured with `results/repro/diagnose_grid.py` against the cluster: stage-1
+data, plane labels, plane adjacency and in-plane order all identical; normals
+<= 5.6e-16 apart (OpenBLAS 0.3.27 on AVX2 vs 0.3.34 on AVX-512), phases <=
+5.7e-14 deg; on planes 2-3 that bit swapped 60-82/72-76 for 60-76/72-82, so
+the two machines' +Grids differed by 4 of ~331 links at every one of 1800
+steps. Not scipy: the laptop's scipy on the cluster's phases gives the
+cluster's pairing.
+
+Now `deterministic_assignment` (topology/grid.py) keeps the minimum total
+phase difference and breaks ties -- totals within `PAIRING_TIE_TOL_DEG` =
+1e-9 -- by lowest satellite index. Measured decision margins: accepted ties
+<= 5.7e-14 deg, nearest non-tie 0.22 deg, so the tolerance is ~13 orders of
+magnitude from either side. `check_grid_pairing` pins the rule, checks
+optimality and margins, and requires an identical grid under 1e-11 deg phase
+noise (the untie-broken solver changes in 5/5 draws). Margins are a property
+of the shell: on another shell, check them before trusting cross-machine
+agreement.
+
+**This changed +Grid's results.** The new grid differs from the old by 34
+structural pairs (the index rule decides 19 rows, not just the one that
+flipped). Experiment 1, New York -> San Francisco: +Grid median hops 7
+(unchanged), mean 7.40 -> 7.41, mean latency 37.1 -> 36.0 ms (hop metric);
+scored selectors identical (new run in `results/repro/`). Every committed
++Grid number elsewhere -- `results/*.csv`, `results/scale/`, the 34-plane
+table above, Phase 2 and rlenv +Grid figures -- predates the fix. The
+`GOLDEN` +Grid pins in `validate_extension.py` were re-recorded once, on
+purpose, with the old values kept in a comment.
+
 ## Current configuration and state
 
 187 satellites: 10 consecutive real orbital planes of ~17–27 on the 70° shell, 1800
@@ -192,9 +242,9 @@ thins every one of them, which leaves `+Grid`'s in-plane neighbours a third of a
 apart and beyond the range cap. The suite now asserts stage 1 and stage 2 resolve planes
 one-for-one, which is what catches that.
 
-Stage 1 is validated (29/29), stage 2 (96/96), stage 3 (44/44), stage 4 (34/34) and
+Stage 1 is validated (29/29), stage 2 (96/96; 102/102 after the 2026-10-26 +Grid tie-break), stage 3 (44/44), stage 4 (34/34) and
 the Phase 2 extension (65/65), with 99/101 mutants killed, the 2 documented equivalents surviving and 0 unexpected,
-in the last full sweep; X21 (added after it) was run alone and killed.
+in the last full sweep; X21 (added after it) was run alone and killed, as were M48-M50 (the +Grid tie-break, 2026-10-26).
 
 **At 34 planes (601 sats) checks fail on purpose**, all of them findings; do not
 weaken any. See `results/scale/NOTES.md`.
@@ -403,8 +453,8 @@ Two mechanisms, with opposite signs:
 Default 3x8 = 24 sats, chosen from a measured sweep of 24-sat shapes (gateway
 in view on 13.6% of satellite-steps, connected, selected degree 3.71). Wider
 shapes (4x6, 8x3, 12x2) split into ~2 components. 3x8 is the CPU dev scale
-only: its selectors are identical. `validate_rlenv.py` 84/84 at
-the default, 71/71 at 10x20 (187 sats; golden pins skipped off-default, count before the per-step capacity checks), and
+only: its selectors are identical. `validate_rlenv.py` 87/87 at
+the default (84 before the 2026-10-26 tolerance change), 71/71 at 10x20 (before it; 72 expected, not re-run) (187 sats; golden pins skipped off-default, count before the per-step capacity checks), and
 24/24 `G*` mutants killed. Recorded findings, checks NOT weakened:
 
 - At 3x8 Greedy, DoTD-forward and DoTD-backward pick identical topologies at all

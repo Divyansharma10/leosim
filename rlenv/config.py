@@ -180,3 +180,14 @@ class RLValidationConfig:
     # Backpressure may trail shortest path at light load (it parks bits away
     # from gateways while queues are near-equal); by at most this much.
     bp_vs_sp_tol: float = 0.01
+    # Cross-machine float tolerances (2026-10-26). Exact bytes do not survive
+    # a change of numpy build: a reduction's last bit depends on its SIMD
+    # path. Same-machine identity is still checked exactly where no reduction
+    # is involved (per-step queue and delivered vectors).
+    # Relative tolerance on a summed episode total. One bit of 5.9e11 is
+    # 1.7e-12, so this still catches a single misdelivered bit per episode.
+    sum_rtol: float = 1e-12
+    # Max |queue - reference| / max |reference| over the pinned backpressure
+    # trajectory. A changed forwarding decision moves queues by ~1e-3 of their
+    # scale; reduction-order noise is ~1e-16. Discriminated against seed 8.
+    queue_rtol: float = 1e-9

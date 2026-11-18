@@ -234,6 +234,81 @@ Delivered, both terms minus terms off (points), mean [min, max] over noise seeds
   correct to within ×/÷1.65 per city, and nothing at ×/÷2.7, on one traffic seed, one
   window and untuned weights. DoTD-forward does not gain at any error level.
 
+### 4.7 Diagnostic: did routing use the links the terms changed?
+
+Hypothesis tested: the terms changed which links exist, but shortest-path routing
+ignored the new ones, so traffic and gateway imbalance stayed put. One run: Greedy,
+terms off vs on (0.2 / 0.2), 3.5 Gbps, seed 7, 5 s step. It reproduces §4.1 exactly
+(0.9787 / 0.9856). `TrafficSim` is wrapped, not modified. Each per-link and per-gateway
+quantity is asserted equal to its own per-step totals. Output, script and full report
+are in `results/phase2/diagnostic/`. "Bits on a link" = bits routed onto it (as in
+`TrafficSim`, not thinned by upstream drops).
+
+**The hypothesis is mostly wrong.** The added links were used, and per-gateway load
+did move. The imbalance summary stayed flat because the load moved between East and
+Southeast Asian gateways, not away from them.
+
+- **Most traffic never touches an ISL.** 76.2% of routed bits go city → satellite →
+  gateway on one satellite (0 ISL hops), 21.6% take 1 hop, 2.2% take more. Off and
+  on are identical, and the mean is 0.27 hops in both. The topology can only affect
+  about a quarter of the traffic.
+- **1. Utilisation.** 94.4% of ISL link-steps carry nothing (94.5% with the terms on).
+  Over the run, 44.0% of the 452 distinct link pairs carry nothing at all (46.6% of 468
+  on). The top 10% of pairs carry 85% of ISL bits. Mean ISL utilisation is 0.001. One
+  ISL briefly reached 1.07 with the terms off (0.9 Gb dropped); there were no ISL drops
+  with them on. Loss is at the feeders.
+- **2. Added links were not idle.** 10.8% of the terms-on link-steps are absent from
+  terms-off at the same step (14,451 added, 13,859 removed, 73 pairs never present in
+  off). They carry **23.0%** of terms-on ISL bits, about 2× the average link (mean
+  0.02 vs 0.01 Gb per link-step; idle 93.4% vs 94.6%). The removed links carried
+  15.1% of terms-off ISL bits. Routing did use the new links, so that part of the
+  hypothesis fails.
+- **3. Gateway-facing links: the egress term did not create more of them.** Share of
+  link-steps by how many ends see a gateway: 0 ends 85.0 → 84.9%, 1 end 12.0 → 12.0%,
+  2 ends 3.1 → 3.1%. Added links lean slightly toward 1 end (15.5%), but so do removed
+  links (15.1%), so the two cancel. 1-end links carry 88% of ISL bits in both runs,
+  because they are the first hop out of a gateway's satellite. **2-end links carry
+  exactly 0 bits in both runs.** That is structural under the hop metric: both ends are
+  already 1 hop from a gateway, so the link between them is never on a shortest path.
+  Egress's max-combination is right to avoid these links.
+- **4. Per gateway (Tb delivered over the run, off → on).** 5.2% of routed bits change
+  gateway, a gross shift of 0.17 Tb against a net gain of 0.028 Tb.
+
+  | gateway | routed off → on | delivered off → on | Δ delivered | delivered/routed off → on |
+  |---|---|---|---|---|
+  | Taipei | 0.939 → 0.983 | 0.920 → 0.965 | +0.045 | 0.980 → 0.981 |
+  | Seoul | 0.897 → 0.901 | 0.868 → 0.885 | +0.017 | 0.968 → 0.983 |
+  | Shanghai | 0.415 → 0.401 | 0.377 → 0.377 | +0.000 | 0.910 → 0.940 |
+  | Ho Chi Minh City | 0.365 → 0.306 | 0.365 → 0.306 | −0.059 | 1 → 1 |
+  | Dhaka | 0.329 → 0.321 | same | −0.008 | 1 → 1 |
+  | Lahore | 0.305 → 0.336 | same | +0.031 | 1 → 1 |
+  | Tokyo | 0.233 → 0.237 | same | +0.004 | 1 → 1 |
+  | Mumbai | 0.227 → 0.226 | same | −0.002 | 1 → 1 |
+  | Jakarta | 0.143 → 0.143 | same | −0.000 | 1 → 1 |
+  | São Paulo | 0.068 → 0.070 | same | +0.002 | 1 → 1 |
+  | Bogotá | 0.040 → 0.039 | same | −0.002 | 1 → 1 |
+  | New York | 0.029 → 0.030 | same | +0.001 | 1 → 1 |
+  | Mexico City | 0.021 → 0.020 | same | −0.001 | 1 → 1 |
+  | Cairo, Moscow, Kinshasa, Istanbul, Lagos, Johannesburg, Sydney | 0 | 0 | 0 | — |
+
+  The largest reassignment is Ho Chi Minh City → Taipei (0.057 Tb). That moves load
+  **onto** one of the two overloaded gateways. Load also shuffled among Seoul,
+  Taipei, Lahore and Dhaka in both directions. The Americas gateways moved by under
+  0.002 Tb. Individual gateways shifted by up to 16% (Ho Chi Minh City) while mean
+  imbalance went 5.40 → 5.41, because the shifts stayed within Asia and partly fed
+  the hottest feeder.
+
+**What this points to instead.** The +0.69-point gain is fewer drops at the three
+saturated feeders: their losses fall from 0.085 to 0.058 Tb while Taipei receives
+*more* routed load. Bits routed over at least one ISL lose 2.4% off and 0.86% on.
+Bits with 0 ISL hops, whose routes the topology cannot change, also lose less
+(2.04% → 1.63%). Both point to *when* load reaches a hot feeder, not *which* feeder it
+goes to: pooled per-gateway totals cannot show that, and this run does not resolve
+it. The diagnostic agrees with §5.1 (the terms do not target per-gateway feeder load)
+and §5.3 (most demand cannot reach a distant gateway). It contradicts the premise of
+§5.2: routing does use the added links, and changed the gateway for 5% of traffic.
+Same caveat as everything above: one seed, one window.
+
 ## 5. What didn't work, and why
 
 1. **Neither term targets the binding constraint.** At 187 satellites loss comes from
@@ -247,7 +322,9 @@ Delivered, both terms minus terms off (points), mean [min, max] over noise seeds
 2. **Routing undoes the topology's choice.** Cities anycast to the hop-nearest gateway
    with fixed shortest-path routing, as the project requires ("keep OSPF fixed"). An
    extra ISL toward an idle gateway is only used if it makes that gateway hop-nearer
-   for some city. Re-scoring a handful of links rarely does.
+   for some city. Re-scoring a handful of links rarely does. (§4.7 qualifies this: added
+   links carry 2× the average link's bits and 5% of traffic changes gateway, but 76% of
+   bits use no ISL at all.)
 3. **Most of the gap is geographic and unreachable.** Seven gateways never see a
    satellite in this 100°-RAAN slice, and demand is skewed to East and South Asia
    (the China-weighted city list). No ISL selection over these 187 satellites can
@@ -351,6 +428,9 @@ for sd in 0.5 1 2; do for s in 1 2 3; do
     --w-egress 0.2 --w-congestion 0.2 --predict-noise-sd $sd --predict-noise-seed $s --out $O/robust
 done; done
 python $O/robust/summarise.py
+
+# §4.7: routing diagnostic (~30 s)
+python $O/diagnostic/diagnose_routing.py > $O/diagnostic/report.txt
 ```
 
 About 15 minutes for the §4.1 sweep and 3–4 minutes for each 1 s run. The nine

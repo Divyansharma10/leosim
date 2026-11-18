@@ -1,0 +1,79 @@
+[cache] hit C:\Users\divya\leosim\cache\a527d90194e539f7
+[off] objective=max, latency=d_over_c, lookahead=forward, grid_gaps=strict: delivered 0.9787 (PHASE2.md 0.9787), imbalance mean 5.402
+[on] objective=max, latency=d_over_c, lookahead=forward, grid_gaps=strict, w_egress=0.2, w_congestion=0.2: delivered 0.9856 (PHASE2.md 0.9856), imbalance mean 5.412
+
+== 0. ISL hops per routed bit (0 = city and gateway share a satellite) ==
+[off] 0: 76.2%, 1: 21.6%, 2: 1.4%, 3: 0.6%, 4: 0.2%, 5: 0.0%, 6: 0.0%, 7: 0.0%  | mean 0.271 hops
+[on] 0: 76.2%, 1: 21.6%, 2: 1.4%, 3: 0.5%, 4: 0.2%, 5: 0.0%, 6: 0.0%  | mean 0.269 hops
+routed (t, city) in both: 51374; gateway changed on 4.8% of them, 5.2% of bits; ISL hops changed on 2.4%
+largest gateway reassignments, off -> on (Tb):
+src                  dst                
+GW-Ho Chi Minh City  GW-Taipei             0.0570
+GW-Seoul             GW-Lahore             0.0262
+GW-Taipei            GW-Seoul              0.0247
+GW-Seoul             GW-Taipei             0.0193
+GW-Dhaka             GW-Seoul              0.0158
+GW-Shanghai          GW-Seoul              0.0128
+GW-Ho Chi Minh City  GW-Seoul              0.0082
+GW-Seoul             GW-Ho Chi Minh City   0.0056
+                     GW-Dhaka              0.0055
+GW-Taipei            GW-Jakarta            0.0054
+                     GW-Dhaka              0.0047
+GW-Seoul             GW-Tokyo              0.0024
+
+== 1. ISL utilisation ==
+[off] per link-step routed bits: n=132840 zero=94.4% mean=0.01 Gb  p25/50/75/90/99 = 0.00 / 0.00 / 0.00 / 0.00 / 0.10 Gb
+[off] per link-step utilisation (routed / two-way cap): mean 0.001, median 0.000, >=0.5: 0.0%
+[off] per pair over run: n=452 zero=44.0% mean=2.40 Gb  p25/50/75/90/99 = 0.00 / 0.08 / 0.93 / 2.73 / 57.59 Gb  (452 distinct pairs)
+[off] share of all ISL bits on top 10% of pairs: 85.1%; total ISL bits 1.09 Tb
+[on] per link-step routed bits: n=133432 zero=94.5% mean=0.01 Gb  p25/50/75/90/99 = 0.00 / 0.00 / 0.00 / 0.00 / 0.10 Gb
+[on] per link-step utilisation (routed / two-way cap): mean 0.001, median 0.000, >=0.5: 0.0%
+[on] per pair over run: n=468 zero=46.6% mean=2.31 Gb  p25/50/75/90/99 = 0.00 / 0.05 / 0.94 / 2.57 / 58.87 Gb  (468 distinct pairs)
+[on] share of all ISL bits on top 10% of pairs: 85.0%; total ISL bits 1.08 Tb
+
+== 2. Links added by the terms (link-steps in on, not in off, same t) ==
+on has 133432 link-steps, off 132840; added 14451 (10.8% of on), removed 13859
+  added (on only)      n=14451 zero=93.4% mean=0.02 Gb  p25/50/75/90/99 = 0.00 / 0.00 / 0.00 / 0.00 / 0.40 Gb
+  kept, in on          n=118981 zero=94.6% mean=0.01 Gb  p25/50/75/90/99 = 0.00 / 0.00 / 0.00 / 0.00 / 0.08 Gb
+  all on               n=133432 zero=94.5% mean=0.01 Gb  p25/50/75/90/99 = 0.00 / 0.00 / 0.00 / 0.00 / 0.10 Gb
+  removed (off only)   n=13859 zero=94.5% mean=0.01 Gb  p25/50/75/90/99 = 0.00 / 0.00 / 0.00 / 0.00 / 0.08 Gb
+  all off              n=132840 zero=94.4% mean=0.01 Gb  p25/50/75/90/99 = 0.00 / 0.00 / 0.00 / 0.00 / 0.10 Gb
+  added link-steps carry 23.0% of on's ISL bits; removed carried 15.1% of off's
+  added    gateway-in-view ends: 0: 82.4%, 1: 15.5%, 2: 2.1%
+  removed  gateway-in-view ends: 0: 82.8%, 1: 15.1%, 2: 2.0%
+  all on   gateway-in-view ends: 0: 84.9%, 1: 12.0%, 2: 3.1%
+  all off  gateway-in-view ends: 0: 85.0%, 1: 12.0%, 2: 3.1%
+  pairs never present in off: 73
+
+== 3. By gateway-in-view ends (0 / 1 / 2 ends see a gateway) ==
+[off] 0 ends: 112869 link-steps (85.0%), bits share 12.2%, n=112869 zero=97.3% mean=0.00 Gb  p25/50/75/90/99 = 0.00 / 0.00 / 0.00 / 0.00 / 0.03 Gb
+[off] 1 ends:  15905 link-steps (12.0%), bits share 87.8%, n=15905 zero=72.5% mean=0.06 Gb  p25/50/75/90/99 = 0.00 / 0.00 / 0.01 / 0.06 / 1.61 Gb
+[off] 2 ends:   4066 link-steps (3.1%), bits share 0.0%, n=4066 zero=100.0% mean=0.00 Gb  p25/50/75/90/99 = 0.00 / 0.00 / 0.00 / 0.00 / 0.00 Gb
+[on] 0 ends: 113297 link-steps (84.9%), bits share 11.7%, n=113297 zero=97.4% mean=0.00 Gb  p25/50/75/90/99 = 0.00 / 0.00 / 0.00 / 0.00 / 0.03 Gb
+[on] 1 ends:  16041 link-steps (12.0%), bits share 88.3%, n=16041 zero=72.5% mean=0.06 Gb  p25/50/75/90/99 = 0.00 / 0.00 / 0.01 / 0.06 / 1.61 Gb
+[on] 2 ends:   4094 link-steps (3.1%), bits share 0.0%, n=4094 zero=100.0% mean=0.00 Gb  p25/50/75/90/99 = 0.00 / 0.00 / 0.00 / 0.00 / 0.00 Gb
+
+== 4. Per-gateway delivered bits (Tb over the run) ==
+                     routed off  routed on  delivered off  delivered on  delta delivered  delivered/routed off  delivered/routed on
+gateway                                                                                                                            
+GW-Taipei                0.9392     0.9834         0.9201        0.9650           0.0449                0.9797               0.9813
+GW-Seoul                 0.8970     0.9005         0.8680        0.8849           0.0169                0.9676               0.9827
+GW-Shanghai              0.4145     0.4013         0.3772        0.3774           0.0002                0.9099               0.9404
+GW-Ho Chi Minh City      0.3647     0.3056         0.3647        0.3056          -0.0592                1.0000               1.0000
+GW-Dhaka                 0.3288     0.3209         0.3288        0.3209          -0.0079                1.0000               1.0000
+GW-Lahore                0.3047     0.3356         0.3047        0.3356           0.0309                1.0000               1.0000
+GW-Tokyo                 0.2330     0.2366         0.2330        0.2366           0.0035                1.0000               1.0000
+GW-Mumbai                0.2273     0.2256         0.2273        0.2256          -0.0017                1.0000               1.0000
+GW-Jakarta               0.1434     0.1433         0.1434        0.1433          -0.0001                1.0000               1.0000
+GW-Sao Paulo             0.0679     0.0697         0.0679        0.0697           0.0018                1.0000               1.0000
+GW-Bogota                0.0402     0.0387         0.0402        0.0387          -0.0015                1.0000               1.0000
+GW-New York City         0.0289     0.0295         0.0289        0.0295           0.0006                1.0000               1.0000
+GW-Mexico City           0.0207     0.0198         0.0207        0.0198          -0.0009                1.0000               1.0000
+GW-Cairo                 0.0000     0.0000         0.0000        0.0000           0.0000                   NaN                  NaN
+GW-Moscow                0.0000     0.0000         0.0000        0.0000           0.0000                   NaN                  NaN
+GW-Kinshasa              0.0000     0.0000         0.0000        0.0000           0.0000                   NaN                  NaN
+GW-Istanbul              0.0000     0.0000         0.0000        0.0000           0.0000                   NaN                  NaN
+GW-Lagos                 0.0000     0.0000         0.0000        0.0000           0.0000                   NaN                  NaN
+GW-Johannesburg          0.0000     0.0000         0.0000        0.0000           0.0000                   NaN                  NaN
+GW-Sydney                0.0000     0.0000         0.0000        0.0000           0.0000                   NaN                  NaN
+total delivered off 3.9250, on 3.9526, sum |delta| 0.1702 Tb
