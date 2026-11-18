@@ -11,8 +11,8 @@ Mutants believed equivalent are marked ``expect_equivalent`` with the reason,
 and are reported separately, so a believed-equivalent survivor cannot be
 mistaken for a coverage gap and an unexpected survivor stands out.
 
-Scope: stage-2 (M*), stage-3 (R*), stage-4 (T*), Phase 2 extension (X*)
-and Phase 3 environment (G*) modules. Each mutant names the suite that
+Scope: stage-2 (M*), stage-3 (R*), stage-4 (T*), Phase 2 extension (X*),
+Phase 3 environment (G*) and Phase 3 agent (A*) modules. Each mutant names the suite that
 is supposed to catch it, and only that suite is run, so a stage-3 mutant cannot
 be credited to a stage-2 check. The stage-1 mutation sweep referred to in the
 project doc (48 mutants) was never committed to this repository, so there was
@@ -48,6 +48,7 @@ ROUTING_SUITE = (sys.executable, "validate_routing.py", "--steps", "300")
 TRAFFIC_SUITE = (sys.executable, "validate_traffic.py", "--steps", "300")
 EXTENSION_SUITE = (sys.executable, "validate_extension.py", "--steps", "300")
 RL_SUITE = (sys.executable, "validate_rlenv.py")
+AGENT_SUITE = (sys.executable, "validate_agent.py")
 TIMEOUT_S = 900
 
 
@@ -261,6 +262,22 @@ MUTANTS: list[Mutant] = [
            "            if g <= limit:\n",
            "            if g <= limit and (len(planes) < 6 or a != planes[len(planes) // 2]):\n",
            "+Grid split in two: middle plane pair never adjacent"),
+    # Cross-plane tie-break (2026-10-26). M48 brings back last-bit dependence
+    # (killed by the margin and phase-noise checks); M49 and M50 stay
+    # deterministic and noise-proof but break the stated rule, which only the
+    # hand pin sees.
+    Mutant("M48", "topology/grid.py",
+           "PAIRING_TIE_TOL_DEG = 1e-9",
+           "PAIRING_TIE_TOL_DEG = 0.0",
+           "pairing ties compared exactly: last-bit noise decides them again"),
+    Mutant("M49", "topology/grid.py",
+           "pick = tied[0]",
+           "pick = tied[-1]",
+           "pairing tie goes to the highest index"),
+    Mutant("M50", "topology/grid.py",
+           "cols_left = sorted(range(m), key=lambda c: col_ids[c])",
+           "cols_left = list(range(m))",
+           "pairing ties broken by array position, not satellite index"),
     # --- metrics.py ------------------------------------------------------------
     Mutant("M38", "topology/metrics.py",
            "prev.adjacency ^ curr.adjacency",
@@ -703,6 +720,92 @@ MUTANTS: list[Mutant] = [
            'if False:',
            'start_mode uniform ignored',
            suite=RL_SUITE),
+    # --- agent/ (Phase 3 residual DDQN) --------------------------------------------
+    # The four the spec names: A01-A04.
+    Mutant('A01', 'agent/network.py',
+           'return (self.gain * adv > self.kappa) & mask',
+           'return (-self.gain * adv > self.kappa) & mask',
+           'residual added with the wrong sign',
+           suite=AGENT_SUITE),
+    Mutant('A02', 'agent/ddqn.py',
+           'self.target.load_state_dict(self.online.state_dict())',
+           'pass',
+           'target network never updated',
+           suite=AGENT_SUITE),
+    Mutant('A03', 'agent/replay.py',
+           'return rng.integers(0, self.size, batch)',
+           'return rng.integers(0, max(1, self.size // 2), batch)',
+           'replay sampling biased to the older half',
+           suite=AGENT_SUITE),
+    Mutant('A04', 'agent/ddqn.py',
+           """    if step >= cfg.eps_decay_steps:
+        return cfg.eps_end
+    return cfg.eps_start + (step / cfg.eps_decay_steps) * (cfg.eps_end - cfg.eps_start)""",
+           """    if step >= cfg.eps_decay_steps:
+        return cfg.eps_start
+    return cfg.eps_end + (step / cfg.eps_decay_steps) * (cfg.eps_start - cfg.eps_end)""",
+           'epsilon schedule inverted (rises from eps_end to eps_start)',
+           suite=AGENT_SUITE),
+    Mutant('A05', 'agent/ddqn.py',
+           '_, adv_on = self.online.value_advantage(nfeats, nmask)',
+           '_, adv_on = self.target.value_advantage(nfeats, nmask)',
+           'Double DQN: target network selects the next action',
+           suite=AGENT_SUITE),
+    Mutant('A06', 'agent/ddqn.py',
+           'v_t, adv_t = self.target.value_advantage(nfeats, nmask)',
+           'v_t, adv_t = self.online.value_advantage(nfeats, nmask)',
+           'Double DQN: online network evaluates the next action',
+           suite=AGENT_SUITE),
+    Mutant('A07', 'agent/network.py',
+           'v = masked_mean(out[..., 0], mask)',
+           'v = out[..., 0].flatten(1).mean(1)',
+           'V pools padding slots',
+           suite=AGENT_SUITE),
+    Mutant('A08', 'agent/ddqn.py',
+           'return reward + gamma * (1.0 - done) * joint_q(',
+           'return reward + gamma * joint_q(',
+           'done ignored in the TD target',
+           suite=AGENT_SUITE),
+    Mutant('A09', 'agent/train.py',
+           'loss = self.agent.observe(aug, a, r, next_aug, terminated)',
+           'loss = self.agent.observe(aug, a, r, next_aug, terminated or truncated)',
+           'time-limit truncation stored as terminal (no bootstrap)',
+           suite=AGENT_SUITE),
+    Mutant('A10', 'agent/train.py',
+           'self.rng.bit_generator.state = s["rng"]',
+           'pass',
+           'checkpoint resume does not restore the trainer RNG',
+           suite=AGENT_SUITE),
+    Mutant('A11', 'agent/ddqn.py',
+           'flip = (self.rng.random(a.shape) < eps) & aug["action_mask"].astype(bool)',
+           'flip = self.rng.random(a.shape) < eps',
+           'exploration flips padding slots',
+           suite=AGENT_SUITE),
+    Mutant('A12', 'agent/network.py',
+           'return (self.gain * adv > self.kappa) & mask',
+           'return (self.gain * adv >= 0.0) & mask',
+           'margin kappa dropped (deviate on any non-negative residual)',
+           suite=AGENT_SUITE),
+    Mutant('A13', 'agent/network.py',
+           'return (self.gain * adv > self.kappa) & mask',
+           'return (adv > self.kappa) & mask',
+           'gain ignored (residual cannot be switched off)',
+           suite=AGENT_SUITE),
+    Mutant('A14', 'agent/features.py',
+           '        dist[nxt] = level\n        frontier = nxt',
+           '        dist[nxt] = level + 1\n        frontier = nxt',
+           'hop distance off by one',
+           suite=AGENT_SUITE),
+    Mutant('A15', 'agent/features.py',
+           'q_m = torch.gather(queue, 1, idx).reshape(b, n, d)',
+           'q_m = queue[:, :, None].expand(b, n, d)',
+           "neighbour queue feature reads the satellite's own queue",
+           suite=AGENT_SUITE),
+    Mutant('A16', 'agent/ddqn.py',
+           'dev = (action != bp) & mask',
+           'dev = (action == bp) & mask',
+           'joint Q credits the slots that FOLLOWED backpressure',
+           suite=AGENT_SUITE),
 ]
 
 
@@ -712,7 +815,7 @@ def sha(path: Path) -> str:
 
 def clear_bytecode() -> None:
     dirs = [ROOT / "__pycache__"]
-    for pkg in ("topology", "routing", "traffic", "rlenv", "leosim"):
+    for pkg in ("topology", "routing", "traffic", "rlenv", "agent", "leosim"):
         dirs.extend((ROOT / pkg).rglob("__pycache__"))
     for d in dirs:
         shutil.rmtree(d, ignore_errors=True)
@@ -785,7 +888,7 @@ def main(argv: list[str]) -> int:
     # Both suites must be green before any mutant means anything. A mutant runs
     # only against the suite meant to catch it, so a suite that was already red
     # would turn every one of its mutants into a false KILL.
-    for suite in (TOPOLOGY_SUITE, ROUTING_SUITE, TRAFFIC_SUITE, EXTENSION_SUITE, RL_SUITE):
+    for suite in (TOPOLOGY_SUITE, ROUTING_SUITE, TRAFFIC_SUITE, EXTENSION_SUITE, RL_SUITE, AGENT_SUITE):
         if not any(m.suite == suite for m in chosen):
             continue
         print(f"Baseline: unmutated suite must pass ({' '.join(suite[1:])})")

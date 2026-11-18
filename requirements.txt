@@ -5,3 +5,4 @@ matplotlib>=3.6
 pandas>=2.0
 scipy>=1.10
 gymnasium>=0.29
+torch>=2.1
