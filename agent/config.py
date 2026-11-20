@@ -29,8 +29,12 @@ tried first and failed (measured, see agent.ddqn).
 
 kappa is the most arbitrary number here (the role w_lookahead plays in stage
 2): it is the estimated gain the agent needs before leaving backpressure on a
-link, in reward-scale units. One link's A is a small share of a step's
-reward, so kappa sets how often the agent can deviate at all. Sweep it before trusting any margin, and read the
+link, in reward-scale units. Since 2026-11-20 Q's deviation term is a mean
+over live slots (agent.network), so A(s, l) is what deviating on slot l would
+be worth if every slot did so: its scale no longer depends on N D. Every
+kappa value used before that change (0.001, 0.01, 0.1 in the cluster array)
+was in summed, N-dependent units and is not comparable to any value after it.
+kappa sets how often the agent can deviate at all. Sweep it before trusting any margin, and read the
 deviation fraction beside every result.
 """
 
@@ -147,6 +151,11 @@ class TrainConfig:
     eval_loads: tuple[float, ...] = (0.5, 1.0, 2.0)
     eval_seeds: tuple[int, ...] = (7, 8, 9)
     eval_starts: tuple[int, ...] = (1200, 1400, 1599)
+    # Q calibration (agent.calibration): states with fewer than tail_steps(gamma,
+    # tol) steps left are not compared, so truncating the realised return drops
+    # at most tol of the geometric weight. 0.01 at gamma 0.95 is 90 steps, so a
+    # 200-step evaluation episode compares its first 111 states. ASSUMED.
+    calib_tail_tol: float = 0.01
     seed: int = 0
 
     def __post_init__(self) -> None:
@@ -168,15 +177,30 @@ class AgentValidationConfig:
     # agent >= BP - untrained_tol * |BP|.
     untrained_tol: float = 1e-9
     guard_starts_big: tuple[int, ...] = (0, 1599)  # 6x12 section: fewer episodes
-    # Learning-loop check: under a reward paying move_pay per live slot that
-    # differs from backpressure, the greedy agent must flip at least
+    # Learning-loop check: under a reward paying move_pay times the FRACTION of
+    # live slots that differ from backpressure (the form Q's mean deviation
+    # term represents exactly; per slot until 2026-11-20, at 0.1), the greedy agent must flip at least
     # move_min_frac of live slots. gamma and lr are the check's own, so the
     # values stay small and it converges in a few hundred updates.
     move_min_frac: float = 0.9
-    move_pay: float = 0.1
+    move_pay: float = 10.0
     move_gamma: float = 0.5
     move_lr: float = 1e-3
     move_episodes: int = 10
+    # Q calibration (agent.calibration). A trained agent's Q for the actions it
+    # takes must match the realised discounted return within
+    #     |mean(Q - G)| <= calib_rel_tol * mean|G| + calib_abs_tol
+    # (return units, after reward scaling). The absolute floor is for an agent
+    # that stays at backpressure, where G is ~0 under the shadow reward; 1.0 is
+    # 0.05 per step at gamma 0.95. Measured 2026-11-20 on the summed-A code:
+    # +54 bias against |G| 54 after 8 shadow episodes at 3x8; the paid-to-
+    # deviate agent over by 29% and 66%. ASSUMED bounds.
+    calib_rel_tol: float = 0.25
+    calib_abs_tol: float = 1.0
+    calib_episodes: int = 8  # full-length shadow-reward episodes, default AgentConfig
+    calib_loads: tuple[float, ...] = (1.0, 2.0)
+    calib_starts: tuple[int, ...] = (1200, 1400)
+    calib_seed: int = 7
     # CPU threads for the suite (results identical for a fixed count).
     torch_threads: int = 4
     # Replay uniformity: chi-square p-value floor, bins, draws.

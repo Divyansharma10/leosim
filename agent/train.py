@@ -27,6 +27,7 @@ import torch
 from rlenv import BackpressurePolicy, EnvConfig, LeoForwardingEnv, ShortestPathPolicy, build_scenario, rollout
 from rlenv.scenario import ROOT, Scenario
 
+from .calibration import calibration
 from .config import AgentConfig, TrainConfig
 from .ddqn import AgentPolicy, DDQNAgent, epsilon
 
@@ -169,6 +170,8 @@ class Trainer:
             r = rollout(env, pol, seed, {"start_step": start})
             row = {"episode": self.episode, "selector": s, "load": l, "seed": seed, "start": start,
                    **_summary(r, env.cfg), "deviation_frac": pol.deviation_frac}
+            cal = calibration(pol.q, r["rewards"], self.acfg.gamma, self.tcfg.calib_tail_tol)
+            row.update({f"calib_{k}": v for k, v in cal.items()})
             for name in ("Backpressure", "Shortest-path"):
                 b = self.baselines[(s, l, seed, start, name)]
                 tag = "bp" if name == "Backpressure" else "sp"

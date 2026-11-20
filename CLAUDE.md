@@ -34,7 +34,7 @@ python validate_traffic.py         # stage 4: 34 checks (--steps 300 for a fast 
 python validate_extension.py       # Phase 2 extension: 65 checks (61 at --steps 300)
 
 python run_rlenv.py --loads 0.5 1 2   # Phase 3: baseline policies through the RL env
-python validate_rlenv.py           # Phase 3 env: 87 checks, ~18 s (all G* mutants use it)
+python validate_rlenv.py           # Phase 3 env: 95 checks, ~18 s (all G* mutants use it)
 
 python mutants.py                  # meta-test: 129-mutation sweep, stages 2-4 + extension + rlenv
 python mutants.py T01 T02          # just the named mutants
@@ -453,9 +453,9 @@ Two mechanisms, with opposite signs:
 Default 3x8 = 24 sats, chosen from a measured sweep of 24-sat shapes (gateway
 in view on 13.6% of satellite-steps, connected, selected degree 3.71). Wider
 shapes (4x6, 8x3, 12x2) split into ~2 components. 3x8 is the CPU dev scale
-only: its selectors are identical. `validate_rlenv.py` 87/87 at
-the default (84 before the 2026-10-26 tolerance change), 71/71 at 10x20 (before it; 72 expected, not re-run) (187 sats; golden pins skipped off-default, count before the per-step capacity checks), and
-24/24 `G*` mutants killed. Recorded findings, checks NOT weakened:
+only: its selectors are identical. `validate_rlenv.py` 95/95 at
+the default (87 before the 2026-11-19 reward-direction checks, 84 before the 2026-10-26 tolerance change), 71/71 at 10x20 (before it; 72 expected, not re-run) (187 sats; golden pins skipped off-default, count before the per-step capacity checks), and
+26/26 `G*` mutants killed (G25-G26 run alone, 2026-11-19). Recorded findings, checks NOT weakened:
 
 - At 3x8 Greedy, DoTD-forward and DoTD-backward pick identical topologies at all
   1800 steps (the matching is nearly forced), so `selector` only distinguishes

@@ -1,6 +1,6 @@
 """Residual Double DQN with a backpressure baseline.
 
-    Q(s, a) = V(s) + sum over live slots l of dev_l(a) * A(s, l),   dev_l = 1[a_l != a_BP(s, l)]
+    Q(s, a) = V(s) + (1 / L) sum over live slots l of dev_l(a) * A(s, l),   dev_l = 1[a_l != a_BP(s, l)]
     greedy: deviate on l iff gain * A(s, l) > kappa                 (agent.network)
 
 An additive (VDN-style) decomposition whose zero is backpressure: A is the
@@ -23,7 +23,10 @@ deviations add on top of it, in one scalar regression per transition.
 Target (Double DQN):
 
     dev*  = deviate(A_online(s'))                     online SELECTS
-    y     = r + gamma (1 - done) * [V_target(s') + sum dev* A_target(s')]   target EVALUATES
+    y     = r + gamma (1 - done) * [V_target(s') + mean dev* A_target(s')]  target EVALUATES
+
+The mean (over the L' live slots of s') replaced a sum on 2026-11-20; see
+agent.network for why.
 
 loss = Huber(Q_online(s, a_taken), y), mean over the batch. The environment
 has no terminal state, only time-limit truncation, so ``done`` is always 0
@@ -55,10 +58,11 @@ def epsilon(cfg: AgentConfig, step: int) -> float:
 
 
 def td_target(dev_next: torch.Tensor, v_next_target: torch.Tensor, adv_next_target: torch.Tensor,
-              reward: torch.Tensor, done: torch.Tensor, gamma: float) -> torch.Tensor:
+              mask_next: torch.Tensor, reward: torch.Tensor, done: torch.Tensor, gamma: float) -> torch.Tensor:
     """(B,) Double-DQN targets. ``dev_next`` (B, N, D) bool comes from the
-    ONLINE network's advantages; V and A of s' from the TARGET network."""
-    return reward + gamma * (1.0 - done) * joint_q(v_next_target, adv_next_target, dev_next)
+    ONLINE network's advantages; V and A of s' from the TARGET network;
+    ``mask_next`` the live slots of s'."""
+    return reward + gamma * (1.0 - done) * joint_q(v_next_target, adv_next_target, dev_next, mask_next)
 
 
 def td_loss(q: torch.Tensor, y: torch.Tensor, delta: float) -> torch.Tensor:
@@ -112,13 +116,20 @@ class DDQNAgent:
     # --- acting ------------------------------------------------------------------------
     def greedy(self, aug: dict) -> np.ndarray:
         """Backpressure's bit, flipped where the online network deviates; 0 on padding."""
+        return self.greedy_q(aug)[0]
+
+    def greedy_q(self, aug: dict) -> tuple[np.ndarray, float]:
+        """The greedy action and the online network's Q for it, from one
+        forward pass (agent.calibration compares that Q with the return)."""
         batch = {k: np.asarray(v)[None] for k, v in aug.items()}
         feats, _, mask = self._tensors(batch)
         with torch.no_grad():
-            _, adv = self.online.value_advantage(feats, mask)
-            dev = self.online.deviate(adv, mask)[0].cpu().numpy()
+            v, adv = self.online.value_advantage(feats, mask)
+            dev_t = self.online.deviate(adv, mask)
+            q = float(joint_q(v, adv, dev_t, mask)[0])
+        dev = dev_t[0].cpu().numpy()
         m = aug["action_mask"].astype(bool)
-        return ((aug["bp_action"].astype(bool) ^ dev) & m).astype(np.int8)
+        return ((aug["bp_action"].astype(bool) ^ dev) & m).astype(np.int8), q
 
     def act(self, aug: dict, explore: bool) -> np.ndarray:
         a = self.greedy(aug)
@@ -147,7 +158,7 @@ class DDQNAgent:
         _, adv_on = self.online.value_advantage(nfeats, nmask)
         dev_next = self.online.deviate(adv_on, nmask)
         v_t, adv_t = self.target.value_advantage(nfeats, nmask)
-        return td_target(dev_next, v_t, adv_t, reward, done, self.cfg.gamma)
+        return td_target(dev_next, v_t, adv_t, nmask, reward, done, self.cfg.gamma)
 
     def update(self) -> float:
         cfg = self.cfg
@@ -157,7 +168,7 @@ class DDQNAgent:
         y = self.targets(b)
         v, adv = self.online.value_advantage(feats, mask)
         dev = (action != bp) & mask
-        loss = td_loss(joint_q(v, adv, dev), y, cfg.huber_delta)
+        loss = td_loss(joint_q(v, adv, dev, mask), y, cfg.huber_delta)
         self.optim.zero_grad(set_to_none=True)
         loss.backward()
         nn.utils.clip_grad_norm_(self.online.parameters(), cfg.grad_clip)
@@ -201,10 +212,12 @@ class AgentPolicy:
     def __init__(self, agent: DDQNAgent, name: str = "Residual-DDQN") -> None:
         self.agent, self.name = agent, name
         self.deviations = self.live = 0
+        self.q: list[float] = []  # Q(s_t, a_t) of every action taken, for agent.calibration
 
     def act(self, obs: dict) -> np.ndarray:
         aug = self.agent.augment(obs)
-        a = self.agent.greedy(aug)
+        a, q = self.agent.greedy_q(aug)
+        self.q.append(q)
         m = aug["action_mask"].astype(bool)
         self.deviations += int((a.astype(bool) != aug["bp_action"].astype(bool))[m].sum())
         self.live += int(m.sum())

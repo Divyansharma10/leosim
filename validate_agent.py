@@ -46,6 +46,7 @@ from agent import (
     masked_mean,
     td_target,
 )
+from agent.calibration import calibration, discounted_returns, tail_steps
 from agent.features import hop_distance, link_features
 from rlenv import BackpressurePolicy, EnvConfig, LeoForwardingEnv, rollout
 from validate import Checks, section
@@ -60,19 +61,25 @@ MAX_DEGREE = 4
 PIN_EPS = {0: 0.1, 10_000: 0.055, 20_000: 0.01, 40_000: 0.01}
 # masked_mean([[1, 3], [5, 100]], live [[1, 1], [1, 0]]) = (1 + 3 + 5) / 3.
 PIN_MASKED_MEAN = 3.0
-# joint_q: V = 1, A = [[0.5, 0.25], [2, 0]], deviating [[1, 0], [1, 1]] -> 1 + 0.5 + 2 + 0.
-PIN_JOINT_Q = 3.5
+# joint_q: V = 1, A = [[0.5, 0.25], [2, 0]], deviating [[1, 0], [1, 1]], live
+# [[1, 1], [1, 0]]: the padding deviation is ignored, 3 live slots, so
+# 1 + (0.5 + 2) / 3. (Summed, before 2026-11-20: 3.5.)
+PIN_JOINT_Q = 11.0 / 6.0
 # td_target, gamma 0.5. Sample 0: deviating slots (from ONLINE A > kappa 0.1:
 # online A [[0.2, 0], [0.3, -1]] -> [[1, 0], [1, 0]]) valued by the TARGET's
-# A [[0.5, 9], [0.25, 7]] and V 2: 2 + 0.5 + 0.25 = 2.75; y = 1 + 0.5 * 2.75.
-# Sample 1: done, r = -3 -> y = -3. Had the target selected (its A > 0.1
-# everywhere) sample 0 would be 1 + 0.5 * 18.75 = 10.375.
-PIN_TD = [2.375, -3.0]
+# A [[0.5, 9], [0.25, 7]] and V 2, 4 live slots: 2 + (0.5 + 0.25) / 4 = 2.1875;
+# y = 1 + 0.5 * 2.1875. Sample 1: done, r = -3 -> y = -3. Had the target
+# selected (its A > 0.1 everywhere) sample 0 would be 1 + 0.5 * 6.1875 = 4.09375.
+PIN_TD = [2.09375, -3.0]
 # Ring of capacity 5 after rewards 0..6: slots hold [5, 6, 2, 3, 4].
 PIN_RING = [5.0, 6.0, 2.0, 3.0, 4.0]
 # Line 0-1-2-3 plus an isolated satellite 4, gateway in view of 3 only,
 # max_hops 8: hops [3, 2, 1, 0, unreachable] -> [3/8, 2/8, 1/8, 0, 1].
 PIN_HOPS = [0.375, 0.25, 0.125, 0.0, 1.0]
+# G = r + 0.5 G': from the end, 1, 1 + 0.5, 1 + 0.75.
+PIN_RETURNS = [1.75, 1.5, 1.0]
+# ceil(ln 0.01 / ln 0.95) = ceil(89.78); ceil(ln 0.01 / ln 0.5) = ceil(6.64).
+PIN_TAILS = [90, 7]
 
 
 def _hash_module(m: torch.nn.Module) -> str:
@@ -135,9 +142,11 @@ class LegalityHook:
 
 
 class DeviationReward:
-    """Test reward for the learning-loop check: ``pay`` per live slot whose
-    applied bit differs from backpressure's at the same pre-step queues
-    (through the env's own observe(), as the shadow reward does)."""
+    """Test reward for the learning-loop check: ``pay`` times the fraction of
+    live slots whose applied bit differs from backpressure's at the same
+    pre-step queues (through the env's own observe(), as the shadow reward
+    does). A fraction, not a count, so its Q has exactly the form of Q's mean
+    deviation term and the calibration reference is representable."""
 
     def __init__(self, pay: float) -> None:
         self.pay, self.env, self.bp = float(pay), None, BackpressurePolicy()
@@ -148,7 +157,7 @@ class DeviationReward:
     def __call__(self, ctx) -> float:
         obs = self.env.observe(ctx.prev_queue, ctx.t)
         dev = (ctx.action.astype(bool) != self.bp.act(obs).astype(bool)) & obs["action_mask"].astype(bool)
-        return self.pay * float(dev.sum())
+        return self.pay * float(dev.sum()) / max(1, int(obs["action_mask"].sum()))
 
 
 def _deviating_agent() -> DDQNAgent:
@@ -188,14 +197,15 @@ def check_units(chk: Checks) -> None:
     chk.record("masked mean excludes padding", abs(mm - PIN_MASKED_MEAN) < 1e-6,
                f"measured {mm}, pinned {PIN_MASKED_MEAN} (plain mean would be 27.25)")
     jq = float(joint_q(torch.tensor([1.0]), torch.tensor([[[0.5, 0.25], [2.0, 0.0]]]),
-                       torch.tensor([[[True, False], [True, True]]]))[0])
-    chk.record("joint Q = V + sum of A over deviating slots", abs(jq - PIN_JOINT_Q) < 1e-6,
+                       torch.tensor([[[True, False], [True, True]]]),
+                       torch.tensor([[[True, True], [True, False]]]))[0])
+    chk.record("joint Q = V + mean of A over deviating live slots (padding ignored)", abs(jq - PIN_JOINT_Q) < 1e-6,
                f"measured {jq}, pinned {PIN_JOINT_Q}")
 
     q = ResidualQ((8,), 1e-5, kappa=0.1)
     live = torch.ones(2, 2, 2, dtype=torch.bool)
     dev_next = q.deviate(torch.tensor([[[0.2, 0.0], [0.3, -1.0]], [[5.0, 5.0], [5.0, 5.0]]]), live)
-    y = td_target(dev_next, torch.tensor([2.0, 2.0]), torch.tensor([[[0.5, 9.0], [0.25, 7.0]]] * 2),
+    y = td_target(dev_next, torch.tensor([2.0, 2.0]), torch.tensor([[[0.5, 9.0], [0.25, 7.0]]] * 2), live,
                   torch.tensor([1.0, -3.0]), torch.tensor([0.0, 1.0]), 0.5)
     chk.record("Double-DQN target: online selects, target values, done stops the bootstrap",
                np.allclose(y.numpy(), PIN_TD, rtol=0, atol=1e-6), f"measured {y.tolist()}, pinned {PIN_TD}")
@@ -423,14 +433,13 @@ def check_loop(chk: Checks, cache: ScenarioCache, base: EnvConfig) -> None:
     _set_head(ag.online, 0.0, 2 * kappa)  # online deviates on every live slot
     _set_head(ag.target, 0.0, -0.3)  # target would deviate nowhere; values each deviation at -0.3
     y = ag.targets(b)
-    live = torch.as_tensor(b["next_action_mask"]).bool()
-    nlive = live.flatten(1).sum(1).float()
+    # Every live slot deviates, so the mean deviation term is the per-slot A.
     r = torch.as_tensor(b["reward"])
     gamma = tiny.gamma
     v_t = 0.0
-    y_online_selects = r + gamma * (v_t - 0.3 * nlive)
+    y_online_selects = r + gamma * (v_t - 0.3)
     y_target_selects = r + gamma * v_t
-    y_online_values = r + gamma * (v_t + 2 * kappa * nlive)
+    y_online_values = r + gamma * (v_t + 2 * kappa)
     ok = torch.allclose(y, y_online_selects, atol=1e-5)
     chk.record("agent targets: online network selects the deviations, target network values them", ok,
                f"y[0] {float(y[0]):.5f}; online-selects {float(y_online_selects[0]):.5f}, "
@@ -476,7 +485,7 @@ def check_reproducible(chk: Checks, cache: ScenarioCache, base: EnvConfig) -> No
                _hash_module(perturbed.agent.online) != _hash_module(a.agent.online), "")
 
 
-def check_can_move(chk: Checks, cache: ScenarioCache, base: EnvConfig) -> None:
+def check_can_move(chk: Checks, cache: ScenarioCache, base: EnvConfig) -> Trainer:
     section("The learning loop can leave backpressure (3x8)")
     short = dataclasses.replace(base, episode_steps=VCFG.short_episode_steps)
     acfg = dataclasses.replace(VCFG.tiny, gamma=VCFG.move_gamma, lr=VCFG.move_lr)
@@ -490,6 +499,88 @@ def check_can_move(chk: Checks, cache: ScenarioCache, base: EnvConfig) -> None:
                pol.deviation_frac >= VCFG.move_min_frac,
                f"greedy deviation fraction {pol.deviation_frac:.3f}, required >= {VCFG.move_min_frac:g} "
                f"after {tr.agent.updates} updates")
+    return tr
+
+
+# --- Q calibration -------------------------------------------------------------------
+def _calibrate(agent: DDQNAgent, env: LeoForwardingEnv, seeds, starts) -> tuple[dict, list[np.ndarray]]:
+    """Calibration averaged over greedy episodes, plus every action taken."""
+    rows, acts = [], []
+    for seed in seeds:
+        for start in starts:
+            pol = AgentPolicy(agent)
+            obs, _ = env.reset(seed=seed, options={"start_step": start})
+            rewards, done = [], False
+            while not done:
+                a = pol.act(obs)
+                acts.append(a)
+                obs, r, _, done, _ = env.step(a)
+                rewards.append(r)
+            rows.append(calibration(pol.q, rewards, agent.cfg.gamma, TrainConfig().calib_tail_tol)
+                        | {"dev": pol.deviation_frac})
+    return {k: float(np.mean([r[k] for r in rows])) for k in rows[0]}, acts
+
+
+def _calibrated(c: dict) -> tuple[bool, float]:
+    bound = VCFG.calib_rel_tol * c["g_abs"] + VCFG.calib_abs_tol
+    return abs(c["bias"]) <= bound, bound
+
+
+def _calib_detail(c: dict, bound: float) -> str:
+    return (f"Q {c['q_mean']:+.3f} vs return {c['g_mean']:+.3f}: bias {c['bias']:+.3f}, bound {bound:.3f} "
+            f"({c['n']:.0f} states/episode, deviation {c['dev']:.3f})")
+
+
+def check_calibration_units(chk: Checks) -> None:
+    section("Q calibration: unit pins")
+    g = discounted_returns([1.0, 1.0, 1.0], 0.5)
+    chk.record("pinned: discounted_returns([1, 1, 1], 0.5) = [1.75, 1.5, 1]", list(g) == PIN_RETURNS, f"{list(g)}")
+    tails = [tail_steps(0.95, 0.01), tail_steps(0.5, 0.01)]
+    chk.record("pinned: tail_steps(0.95, 0.01) = 90, tail_steps(0.5, 0.01) = 7", tails == PIN_TAILS, f"{tails}")
+    r = np.ones(10)
+    c = calibration(discounted_returns(r, 0.5) + 2.0, r, 0.5, 0.01)
+    chk.record("pinned: Q = G + 2 over 10 steps at gamma 0.5, tol 0.01 gives bias 2 on the first 4 states",
+               c["n"] == 4 and abs(c["bias"] - 2.0) < 1e-12 and abs(c["mae"] - 2.0) < 1e-12, f"{c}")
+    c = calibration(np.zeros(5), np.ones(5), 0.95, 0.01)
+    chk.record("an episode shorter than the tail compares nothing: n = 0 and NaN, never a silent 0",
+               c["n"] == 0 and np.isnan(c["bias"]), f"{c}")
+
+
+def check_calibration(chk: Checks, cache: ScenarioCache, base: EnvConfig, move: Trainer) -> None:
+    """Q must be the value of what the agent does. Missing until 2026-11-20:
+    the 300-episode run's Q reached +470 against rewards in [-13, +0.3] and no
+    check or report showed it. Three parts: a learnable reference (the
+    paid-to-deviate agent, whose Q has the form the network assumes), a
+    discrimination (shift V, which moves Q and not one action), and the real
+    shadow reward."""
+    section("Q calibration: Q against the realised return (3x8)")
+    env = move.train_env("Greedy", 1.0)
+    c, acts = _calibrate(move.agent, env, (7, 8), (1400,))
+    ok, bound = _calibrated(c)
+    chk.record("paid to deviate: Q is calibrated to the return the agent earns", ok, _calib_detail(c, bound))
+
+    shift = 2.0 * (bound + abs(c["bias"]))
+    with torch.no_grad():
+        move.agent.online.net.head.bias[0] += shift
+    c2, acts2 = _calibrate(move.agent, env, (7, 8), (1400,))
+    with torch.no_grad():
+        move.agent.online.net.head.bias[0] -= shift
+    moved = abs((c2["bias"] - c["bias"]) - shift) <= 1e-3 * shift
+    same = len(acts) == len(acts2) and all(np.array_equal(a, b) for a, b in zip(acts, acts2))
+    chk.record("discrimination: V shifted by s moves the bias by s, changes no action, and is flagged",
+               moved and same and not _calibrated(c2)[0],
+               f"s {shift:.3f}; bias {c['bias']:+.3f} -> {c2['bias']:+.3f}; actions identical {same}")
+
+    tr = Trainer(AgentConfig(), TrainConfig(selectors=("Greedy",), loads=VCFG.calib_loads), base, cache)
+    tr.train(VCFG.calib_episodes, eval_every=0)
+    rows = []
+    for load in VCFG.calib_loads:
+        cl, _ = _calibrate(tr.agent, tr.env("Greedy", load), (VCFG.calib_seed,), VCFG.calib_starts)
+        rows.append(cl)
+    c = {k: float(np.mean([r[k] for r in rows])) for k in rows[0]}
+    ok, bound = _calibrated(c)
+    chk.record(f"shadow reward, {VCFG.calib_episodes} episodes, default agent: Q is calibrated to the return",
+               ok, _calib_detail(c, bound) + f", {tr.agent.updates} updates")
 
 
 def main() -> int:
@@ -500,6 +591,7 @@ def main() -> int:
     torch.set_num_threads(VCFG.torch_threads)
     chk = Checks()
     check_units(chk)
+    check_calibration_units(chk)
 
     debug = EnvConfig()  # 3x8, populous20: the CPU debug scale
     cache = ScenarioCache(debug, ROOT, verbose=True)
@@ -507,7 +599,8 @@ def main() -> int:
     check_untrained(chk, cache, debug, "3x8", VCFG.guard_seeds, VCFG.guard_starts)
     check_loop(chk, cache, debug)
     check_reproducible(chk, cache, debug)
-    check_can_move(chk, cache, debug)
+    move = check_can_move(chk, cache, debug)
+    check_calibration(chk, cache, debug, move)
 
     primary = EnvConfig(n_planes=6, sats_per_plane=12, gateway_sites="krishnan8")
     big = ScenarioCache(primary, ROOT, verbose=True)

@@ -17,9 +17,18 @@ shortest-path run once on the same episodes. Reported per evaluation:
 the gain in absolute queue reward over backpressure (agent - BP, so BP = 0
 and higher is better), the same for shortest-path, the fraction of live
 slots where the agent overrides backpressure, delivered fraction and ISL
-transmissions per arrived bit. The agent must beat BOTH baselines to count:
-under krishnan8 at light load shortest-path beats backpressure, so beating
-backpressure alone can mean only having learned shortest-path.
+transmissions per arrived bit. And Q calibration (agent.calibration): the network's
+Q for the actions it took against the discounted return they earned. A Q far
+from the return means the network is not valuing anything the agent does, and
+no gain or deviation number from that evaluation is interpretable. The agent must beat BOTH baselines to count. Under krishnan8 shortest-path
+beats backpressure only at load 0.25 (6x12 Greedy, eval seeds/starts, measured
+2026-11-20: queue reward -0.500 vs -0.681, delivered 0.959 vs 0.776; the
+2026-11-08 isl_crossing notes give 0.970 vs 0.845 delivered). From load 0.5
+up it ties on delivery (0.705 vs 0.709) but loses on queue reward (-6.31 vs
+-1.35): its tree funnels bits into a few gateway-seeing satellites, and the
+max-queue term is 5x backpressure's. The default eval loads are 0.5, 1, 2, so
+there the shortest-path half of the criterion never binds; add 0.25 to
+--eval-loads for it to.
 
 Outputs under --out/<tag>/: curve.csv (one row per training episode, rewards
 include exploration), evals.csv (one row per evaluation episode),
@@ -58,7 +67,8 @@ def summarise(evals: pd.DataFrame) -> pd.DataFrame:
         deviation=("deviation_frac", "mean"), delivered=("delivered_frac", "mean"),
         bp_delivered=("bp_delivered_frac", "mean"), sp_delivered=("sp_delivered_frac", "mean"),
         isl=("isl_per_arrived", "mean"), bp_isl=("bp_isl_per_arrived", "mean"),
-        n=("gain", "size")).reset_index()
+        q=("calib_q_mean", "mean"), ret=("calib_g_mean", "mean"), q_bias=("calib_bias", "mean"),
+        q_mae=("calib_mae", "mean"), n=("gain", "size")).reset_index()
 
 
 def plot(summary: pd.DataFrame, title: str, path: Path) -> None:
@@ -171,7 +181,7 @@ def main() -> int:
             s = summarise(pd.DataFrame(tr.evals))
             last = s[s.episode == tr.episode]
             print("  [eval] " + "  ".join(f"load {r.load:g}: gain {r.gain:+.4f} (SP {r.sp_gain:+.4f}) "
-                                         f"dev {r.deviation:.3f}" for r in last.itertuples()), flush=True)
+                                         f"dev {r.deviation:.3f} Q {r.q:+.3f} vs return {r.ret:+.3f}" for r in last.itertuples()), flush=True)
 
     pd.DataFrame(tr.curve).to_csv(out / "curve.csv", index=False)
     evals = pd.DataFrame(tr.evals)

@@ -598,6 +598,94 @@ def check_shadow(chk: Checks, cfg: EnvConfig, sc) -> None:
                np.array_equal(again, r_shadow), "")
 
 
+class _HoldAtGateway:
+    """Backpressure, except a satellite never sends to a neighbour that has a
+    gateway in view: it holds the bits instead. The hoarding the 2026-11-19
+    300-episode run converged towards, applied only where it is plainly wrong."""
+
+    name = "BP-hold-at-gateway"
+
+    def act(self, obs: dict) -> np.ndarray:
+        a = BackpressurePolicy().act(obs)
+        nbr_sees_gw = obs["downlink_capacity"][np.maximum(obs["neighbours"], 0)] > 0
+        return (a & ~(nbr_sees_gw & obs["action_mask"].astype(bool))).astype(np.int8)
+
+
+def check_reward_direction(chk: Checks, cfg: EnvConfig, sc) -> None:
+    """The reward must prefer forwarding where not forwarding is obviously
+    worse. The suite already checks the inverse (paid to deviate, the agent
+    deviates; validate_agent.py); nothing checked that the reward itself
+    points the right way under normal conditions.
+
+    Hand-built: satellite 0 holds 2 Gb and sees no gateway; its only
+    neighbour, 1, is empty and drains to a gateway at 1 Gbps; ISL 1 Gbps,
+    1 s step, no arrivals, q_ref 1 Gb. Step 1 either forwards 0 -> 1 or
+    holds; step 2 forwards 0 -> 1 in both branches, so only the step-1
+    decision differs.
+
+        forward: [1, 1] -> [0, 1]      hold: [2, 0] -> [1, 1]
+
+    Also pinned, as a property rather than a defect: with w_max = 0 the
+    reward cannot see the forward for one step, because forwarding conserves
+    the backlog (Eq. 14) and only a downlink removes bits. The cost of
+    holding arrives one step later. Any per-step credit the mean term gives a
+    forwarding decision is therefore delayed by at least one step."""
+    section("Reward direction: not forwarding must cost")
+    from rlenv.reward import RewardContext
+    gb = 1.0e9
+    isl = np.array([[0.0, gb], [gb, 0.0]])
+    dl = np.array([0.0, gb])
+    zero = np.zeros(2)
+    send = np.array([[False, True], [False, False]])
+    hold = np.zeros((2, 2), dtype=bool)
+
+    def run(first):
+        r1 = forward_step(np.array([2 * gb, 0.0]), first, isl, dl, zero, 1.0, np.inf)
+        r2 = forward_step(r1.queue, send, isl, dl, zero, 1.0, np.inf)
+        return r1, r2
+
+    def reward(fn, prev, res):
+        return fn(RewardContext(prev, res, np.zeros((2, 1)), 0, gb, lambda a: None, isl, dl))
+
+    (f1, f2), (h1, h2) = run(send), run(hold)
+    both, mean_only = QueueReward(1.0, 1.0), QueueReward(1.0, 0.0)
+    rf1, rh1 = reward(both, np.array([2 * gb, 0.0]), f1), reward(both, np.array([2 * gb, 0.0]), h1)
+    rf2, rh2 = reward(both, f1.queue, f2), reward(both, h1.queue, h2)
+    chk.record("pinned: queues after forward [1, 1] -> [0, 1] Gb, after hold [2, 0] -> [1, 1] Gb",
+               list(f1.queue) == [gb, gb] and list(f2.queue) == [0.0, gb]
+               and list(h1.queue) == [2 * gb, 0.0] and list(h2.queue) == [gb, gb],
+               f"forward {f1.queue / gb} -> {f2.queue / gb}, hold {h1.queue / gb} -> {h2.queue / gb}")
+    chk.record("pinned: step-1 reward, forward -2 > hold -3 (default weights, max term sees it at once)",
+               rf1 == -2.0 and rh1 == -3.0, f"forward {rf1}, hold {rh1}")
+    chk.record("pinned: step-2 reward, forward -1.5 > hold -2", rf2 == -1.5 and rh2 == -2.0,
+               f"forward {rf2}, hold {rh2}")
+    mf1, mh1 = reward(mean_only, np.array([2 * gb, 0.0]), f1), reward(mean_only, np.array([2 * gb, 0.0]), h1)
+    mf2, mh2 = reward(mean_only, f1.queue, f2), reward(mean_only, h1.queue, h2)
+    chk.record("pinned (property): mean term alone is blind to the forward for one step, -1 = -1",
+               mf1 == -1.0 and mh1 == -1.0, f"forward {mf1}, hold {mh1}")
+    chk.record("pinned: mean term alone sees it at step 2, forward -0.5 > hold -1",
+               mf2 == -0.5 and mh2 == -1.0, f"forward {mf2}, hold {mh2}")
+
+    # The same, on the real scenario through env.step with the shadow reward:
+    # holding bits that a gateway-seeing neighbour would drain must lose to
+    # backpressure, and holding everywhere (No-ISL) must lose by more.
+    shadow_cfg = dataclasses.replace(cfg, reward_kind="shadow")
+    env = LeoForwardingEnv(shadow_cfg, sc)
+    r_hold = rollout(env, _HoldAtGateway(), 7)
+    r_none = rollout(env, ConstantPolicy(False), 7)
+    r_bp = rollout(env, BackpressurePolicy(), 7)
+    chk.record("shadow reward: holding at gateway-adjacent satellites loses to backpressure (mean < 0)",
+               r_hold["reward_mean"] < 0,
+               f"mean {r_hold['reward_mean']:.4f}; delivered {r_hold['delivered_frac']:.3f} vs BP "
+               f"{r_bp['delivered_frac']:.3f}")
+    chk.record("shadow reward: holding everywhere (No-ISL) loses by more than holding at gateways",
+               r_none["reward_mean"] < r_hold["reward_mean"] < 0,
+               f"No-ISL {r_none['reward_mean']:.4f}, hold-at-gateway {r_hold['reward_mean']:.4f}")
+    chk.record("discrimination: hold-at-gateway really differs from backpressure (it delivers less)",
+               r_hold["delivered_frac"] < r_bp["delivered_frac"],
+               f"{r_hold['delivered_frac']:.4f} vs {r_bp['delivered_frac']:.4f}")
+
+
 def check_scaling_and_starts(chk: Checks, cfg: EnvConfig, sc) -> None:
     section("Reward scaling and episode starts")
     scale = 0.1
@@ -685,6 +773,7 @@ def main() -> int:
     check_inside_alongside(chk, cfg, sc)
     check_counterfactual(chk, cfg, sc)
     check_shadow(chk, cfg, sc)
+    check_reward_direction(chk, cfg, sc)
     check_scaling_and_starts(chk, cfg, sc)
     check_policies(chk, cfg, sc)
     check_phase2_curve(chk, cfg, sc)
