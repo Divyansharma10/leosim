@@ -56,7 +56,8 @@ SELECTORS = ("Greedy", "DoTD-forward", "DoTD-backward", "+Grid")
 def tag_for(base: EnvConfig, acfg: AgentConfig, tcfg: TrainConfig) -> str:
     loads = "-".join(f"{l:g}" for l in tcfg.loads)
     return (f"{base.n_planes}x{base.sats_per_plane}_{base.gateway_sites}_loads{loads}_"
-            f"kappa{acfg.residual_margin:g}_{acfg.reward_kind}_ep{tcfg.episodes}_seed{acfg.seed}")
+            f"kappa{acfg.residual_margin:g}_{acfg.reward_kind}_wmean{base.w_mean:g}_wmax{base.w_max:g}_"
+            f"ep{tcfg.episodes}_seed{acfg.seed}")
 
 
 def summarise(evals: pd.DataFrame) -> pd.DataFrame:
@@ -125,6 +126,9 @@ def main() -> int:
     p.add_argument("--selectors", nargs="+", choices=SELECTORS, default=list(t.selectors))
     p.add_argument("--eval-every", type=int, default=t.eval_every)
     p.add_argument("--kappa", type=float, default=a.residual_margin)
+    p.add_argument("--w-mean", type=float, default=e.w_mean, help="reward weight on the mean queue")
+    p.add_argument("--w-max", type=float, default=e.w_max,
+                   help="reward weight on the max queue; also the weight in the reported queue-reward gain")
     p.add_argument("--reward-kind", choices=["shadow", "queue"], default=a.reward_kind,
                    help="reward scale is fixed per kind (agent.config.REWARD_SCALE)")
     p.add_argument("--seed", type=int, default=a.seed, help="agent and trainer seed")
@@ -140,7 +144,7 @@ def main() -> int:
         torch.set_num_threads(args.threads)
 
     base = EnvConfig(n_planes=args.planes, sats_per_plane=args.per_plane, gateway_sites=args.gateway_sites,
-                     episode_steps=args.episode_steps)
+                     episode_steps=args.episode_steps, w_mean=args.w_mean, w_max=args.w_max)
     acfg = dataclasses.replace(a, residual_margin=args.kappa, reward_kind=args.reward_kind, seed=args.seed,
                                device=args.device)
     eval_loads = tuple(args.eval_loads) if args.eval_loads else tuple(args.loads)

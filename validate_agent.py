@@ -552,7 +552,9 @@ def check_calibration(chk: Checks, cache: ScenarioCache, base: EnvConfig, move: 
     check or report showed it. Three parts: a learnable reference (the
     paid-to-deviate agent, whose Q has the form the network assumes), a
     discrimination (shift V, which moves Q and not one action), and the real
-    shadow reward."""
+    queue reward with and without enough target syncs for the value to
+    propagate. Not the shadow reward: its Q is not a function of the state
+    (see AgentValidationConfig), so a greedy return cannot calibrate it."""
     section("Q calibration: Q against the realised return (3x8)")
     env = move.train_env("Greedy", 1.0)
     c, acts = _calibrate(move.agent, env, (7, 8), (1400,))
@@ -571,16 +573,22 @@ def check_calibration(chk: Checks, cache: ScenarioCache, base: EnvConfig, move: 
                moved and same and not _calibrated(c2)[0],
                f"s {shift:.3f}; bias {c['bias']:+.3f} -> {c2['bias']:+.3f}; actions identical {same}")
 
-    tr = Trainer(AgentConfig(), TrainConfig(selectors=("Greedy",), loads=VCFG.calib_loads), base, cache)
-    tr.train(VCFG.calib_episodes, eval_every=0)
-    rows = []
-    for load in VCFG.calib_loads:
-        cl, _ = _calibrate(tr.agent, tr.env("Greedy", load), (VCFG.calib_seed,), VCFG.calib_starts)
-        rows.append(cl)
-    c = {k: float(np.mean([r[k] for r in rows])) for k in rows[0]}
+    def queue_run(sync):
+        acfg = dataclasses.replace(VCFG.tiny, reward_kind="queue", target_sync=sync, buffer_size=VCFG.calib_buffer)
+        tr = Trainer(acfg, TrainConfig(selectors=("Greedy",), loads=VCFG.calib_loads), base, cache)
+        tr.train(VCFG.calib_episodes, eval_every=0)
+        rows = [_calibrate(tr.agent, tr.env("Greedy", load), (VCFG.calib_seed,), VCFG.calib_starts)[0]
+                for load in VCFG.calib_loads]
+        return {k: float(np.mean([r[k] for r in rows])) for k in rows[0]}, tr.agent.updates
+
+    c, upd = queue_run(VCFG.calib_target_sync)
     ok, bound = _calibrated(c)
-    chk.record(f"shadow reward, {VCFG.calib_episodes} episodes, default agent: Q is calibrated to the return",
-               ok, _calib_detail(c, bound) + f", {tr.agent.updates} updates")
+    chk.record(f"queue reward, {VCFG.calib_episodes} episodes, target sync {VCFG.calib_target_sync}: "
+               f"Q is calibrated to the return", ok, _calib_detail(c, bound) + f", {upd} updates")
+    c, upd = queue_run(VCFG.calib_slow_sync)
+    ok, bound = _calibrated(c)
+    chk.record(f"discrimination: the same run with target sync {VCFG.calib_slow_sync} (value not propagated) "
+               f"is flagged", not ok, _calib_detail(c, bound) + f", {upd} updates")
 
 
 def main() -> int:

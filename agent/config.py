@@ -193,11 +193,24 @@ class AgentValidationConfig:
     # (return units, after reward scaling). The absolute floor is for an agent
     # that stays at backpressure, where G is ~0 under the shadow reward; 1.0 is
     # 0.05 per step at gamma 0.95. Measured 2026-11-20 on the summed-A code:
-    # +54 bias against |G| 54 after 8 shadow episodes at 3x8; the paid-to-
-    # deviate agent over by 29% and 66%. ASSUMED bounds.
+    # the paid-to-deviate agent over by 29% and 66%. ASSUMED bounds.
     calib_rel_tol: float = 0.25
     calib_abs_tol: float = 1.0
-    calib_episodes: int = 8  # full-length shadow-reward episodes, default AgentConfig
+    # The real-reward part uses the QUEUE reward, not the shadow: a shadow-
+    # trained Q is not the value of the state under any rollout policy (its
+    # baseline b_t comes from the hidden backpressure run, and in training a
+    # given state usually means the agent trails that run), so it cannot be
+    # calibrated against a greedy return. Measured 3x8, target sync 100, 5001
+    # updates: a never-deviating shadow agent has Q -31.7 against return 0;
+    # the queue-reward agent, -8.90 against -9.04. The check's own network and
+    # sync (tiny, 50 updates) so that value propagates within the run; with
+    # sync 1000 the same run's Q matches only the 4-step return (relative
+    # bias 0.92), which is the discrimination. Measured: sync 50, 10 episodes,
+    # relative bias 0.079, 19 s.
+    calib_episodes: int = 10  # full-length queue-reward episodes, tiny agent
+    calib_target_sync: int = 50
+    calib_slow_sync: int = 1000
+    calib_buffer: int = 10_000
     calib_loads: tuple[float, ...] = (1.0, 2.0)
     calib_starts: tuple[int, ...] = (1200, 1400)
     calib_seed: int = 7
