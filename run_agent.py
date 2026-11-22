@@ -56,7 +56,8 @@ SELECTORS = ("Greedy", "DoTD-forward", "DoTD-backward", "+Grid")
 def tag_for(base: EnvConfig, acfg: AgentConfig, tcfg: TrainConfig) -> str:
     loads = "-".join(f"{l:g}" for l in tcfg.loads)
     return (f"{base.n_planes}x{base.sats_per_plane}_{base.gateway_sites}_loads{loads}_"
-            f"kappa{acfg.residual_margin:g}_{acfg.reward_kind}_wmean{base.w_mean:g}_wmax{base.w_max:g}_"
+            f"kappa{acfg.residual_margin:g}_sync{acfg.target_sync}_{acfg.reward_kind}_"
+            f"wmean{base.w_mean:g}_wmax{base.w_max:g}_"
             f"ep{tcfg.episodes}_seed{acfg.seed}")
 
 
@@ -126,6 +127,9 @@ def main() -> int:
     p.add_argument("--selectors", nargs="+", choices=SELECTORS, default=list(t.selectors))
     p.add_argument("--eval-every", type=int, default=t.eval_every)
     p.add_argument("--kappa", type=float, default=a.residual_margin)
+    p.add_argument("--target-sync", type=int, default=a.target_sync,
+                   help="gradient updates between hard target copies; at 1000 a 100-episode run gets ~20 "
+                        "copies and Q bootstraps only ~20 steps (agent.calibration)")
     p.add_argument("--w-mean", type=float, default=e.w_mean, help="reward weight on the mean queue")
     p.add_argument("--w-max", type=float, default=e.w_max,
                    help="reward weight on the max queue; also the weight in the reported queue-reward gain")
@@ -145,7 +149,8 @@ def main() -> int:
 
     base = EnvConfig(n_planes=args.planes, sats_per_plane=args.per_plane, gateway_sites=args.gateway_sites,
                      episode_steps=args.episode_steps, w_mean=args.w_mean, w_max=args.w_max)
-    acfg = dataclasses.replace(a, residual_margin=args.kappa, reward_kind=args.reward_kind, seed=args.seed,
+    acfg = dataclasses.replace(a, residual_margin=args.kappa, target_sync=args.target_sync,
+                               reward_kind=args.reward_kind, seed=args.seed,
                                device=args.device)
     eval_loads = tuple(args.eval_loads) if args.eval_loads else tuple(args.loads)
     tcfg = dataclasses.replace(t, episodes=args.episodes, loads=tuple(args.loads), selectors=tuple(args.selectors),
